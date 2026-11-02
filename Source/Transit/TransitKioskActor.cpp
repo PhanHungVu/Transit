@@ -1,27 +1,25 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "TransitKioskActor.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Pawn.h"
+#include "Engine/World.h"
 
 // Sets default values
 ATransitKioskActor::ATransitKioskActor()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
 }
 
-// Called when the game starts or when spawned
-void ATransitKioskActor::BeginPlay()
+bool ATransitKioskActor::CanInteract(const APlayerController* Player) const
 {
-	Super::BeginPlay();
-	
-}
-
-// Called every frame
-void ATransitKioskActor::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
+    if (!Player || !Player->GetPawn()) return false;
+    FVector Center, Extent;
+    GetActorBounds(false, Center, Extent);
+    if (FVector::DistSquared(Player->GetPawn()->GetActorLocation(), Center) > FMath::Square(InteractionDistance)) return false;
+    FVector Eye; FRotator View;
+    Player->GetPlayerViewPoint(Eye, View);
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(KioskVisibility), false, Player->GetPawn());
+    FHitResult Hit;
+    return !GetWorld()->LineTraceSingleByChannel(Hit, Eye, Center, ECC_Visibility, Query) || Hit.GetActor() == this;
 }
 
