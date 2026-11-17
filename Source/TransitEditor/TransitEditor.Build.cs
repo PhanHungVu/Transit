@@ -7,7 +7,8 @@ public class TransitEditor : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         PrivateDependencyModuleNames.AddRange(new[] {
             "Core", "CoreUObject", "Engine", "Transit", "UnrealEd", "UMG", "UMGEditor",
-            "Slate", "SlateCore", "SlateRHIRenderer", "Kismet", "KismetCompiler", "BlueprintGraph", "EnhancedInput", "InputCore", "RenderCore"
+            "Slate", "SlateCore", "SlateRHIRenderer", "Kismet", "KismetCompiler", "BlueprintGraph", "EnhancedInput", "InputCore", "RenderCore",
+            "AssetRegistry", "MeshDescription", "StaticMeshDescription", "ImageCore"
         });
     }
 }

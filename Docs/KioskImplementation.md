@@ -1,5 +1,7 @@
 # Transit kiosk implementation
 
+> This document describes the original prototype baseline. The active System Design PDF migration is documented in [KioskMigration.md](KioskMigration.md), including the new screen/modal flow, eight destinations, six top-ups, localization and separate hardware interaction. Use that report for the current implementation.
+
 ## Project inspection
 
 - Project association: Unreal Engine 5.8; installed version **5.8.2**, CL 56702186, at `E:\Unreal\UE_5.8`.

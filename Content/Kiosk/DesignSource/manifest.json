@@ -1,0 +1,91 @@
+{
+  "source": "System Design.pdf",
+  "sha256": "b7b99b867206c53ddbf683cad02d9106478cf0f4213f57c7ab0eac1158ac70f8",
+  "pages": 148,
+  "assets": [
+    {
+      "name": "Train",
+      "pdf_object": 245,
+      "width": 1470,
+      "height": 1070
+    },
+    {
+      "name": "Map",
+      "pdf_object": 1793,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "name": "Purchase",
+      "pdf_object": 1487,
+      "width": 175,
+      "height": 247
+    },
+    {
+      "name": "TopUp",
+      "pdf_object": 1491,
+      "width": 175,
+      "height": 247
+    },
+    {
+      "name": "Destination",
+      "pdf_object": 1631,
+      "width": 175,
+      "height": 247
+    },
+    {
+      "name": "DayPass",
+      "pdf_object": 1635,
+      "width": 175,
+      "height": 247
+    },
+    {
+      "name": "Collection",
+      "pdf_object": 229,
+      "width": 400,
+      "height": 160
+    },
+    {
+      "name": "CardReader",
+      "pdf_object": 233,
+      "width": 440,
+      "height": 300
+    },
+    {
+      "name": "PaymentTerminal",
+      "pdf_object": 237,
+      "width": 242,
+      "height": 460
+    },
+    {
+      "name": "Assistance",
+      "pdf_page": 9,
+      "illustration_clip": [
+        198.0,
+        86.0,
+        282.0,
+        170.0
+      ]
+    },
+    {
+      "name": "Help",
+      "pdf_page": 7,
+      "illustration_clip": [
+        558.0,
+        293.0,
+        650.0,
+        385.0
+      ]
+    },
+    {
+      "name": "AssistanceLabel",
+      "pdf_page": 7,
+      "illustration_clip": [
+        555.0,
+        267.0,
+        652.0,
+        290.0
+      ]
+    }
+  ]
+}

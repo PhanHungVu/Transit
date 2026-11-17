@@ -11,6 +11,9 @@ class UInputAction;
 class UUserWidget;
 class UTransitKioskWidget;
 class ATransitKioskActor;
+class ACameraActor;
+class UWidgetInteractionComponent;
+class UTransitKioskAimWidget;
 
 /**
  *  Simple first person Player Controller
@@ -33,12 +36,15 @@ public:
     void CloseKiosk();
     bool IsKioskOpen() const { return KioskWidget != nullptr; }
     UTransitKioskWidget* GetKioskWidget() const { return KioskWidget; }
-    void StoreDemoProgress(int32 BalanceCents, bool bPurchasedDayPass)
+    void StoreDemoProgress(int32 BalanceCents)
     {
         DemoCardBalanceCents = BalanceCents;
-        bDayPassPurchased |= bPurchasedDayPass;
     }
     virtual void Tick(float DeltaSeconds) override;
+    virtual bool InputKey(const FInputKeyEventArgs& Args) override;
+    UWidgetInteractionComponent* GetKioskPointer() const { return KioskPointer; }
+    UPROPERTY(EditAnywhere, Category="Kiosk|Camera", meta=(ClampMin="0.01", ClampMax="1"))
+    float KioskLookSensitivity = .12f;
 
 protected:
 
@@ -81,15 +87,30 @@ protected:
 	bool ShouldUseTouchControls() const;
 
 private:
+    friend struct FTransitKioskPOVCheck;
     void UpdateKioskPrompt();
+    void CloseKioskInternal(bool bForce);
+    void UpdateKioskCamera();
+    void UpdateKioskInteraction();
+    void FinishCameraReturn();
+    UPROPERTY(Transient) TObjectPtr<ACameraActor> KioskCamera;
+    UPROPERTY(Transient) TObjectPtr<ACameraActor> ReturningCamera;
+    UPROPERTY(Transient) TObjectPtr<UWidgetInteractionComponent> KioskPointer;
+    UPROPERTY(Transient) TObjectPtr<UTransitKioskAimWidget> KioskAim;
+    TWeakObjectPtr<AActor> PreviousViewTarget;
+    TWeakObjectPtr<APawn> KioskUserPawn;
+    bool bSavedPawnHidden = false;
     UPROPERTY(Transient) TObjectPtr<UTransitKioskWidget> KioskWidget;
     UPROPERTY(Transient) TObjectPtr<UUserWidget> InteractionPrompt;
     TWeakObjectPtr<ATransitKioskActor> NearbyKiosk;
     TWeakObjectPtr<ATransitKioskActor> ActiveKiosk;
     float PromptUpdateSeconds = 0.f;
     int32 DemoCardBalanceCents = INDEX_NONE;
-    bool bDayPassPurchased = false;
     bool bSavedCursor = false;
     bool bSavedClickEvents = false;
     bool bSavedHoverEvents = false;
+    bool bPointerOnScreen = false;
+    FName HardwareAction;
+    float KioskYaw = 0, KioskPitch = 0, KioskEyeHeight = 165;
+    FTimerHandle CameraReturnTimer;
 };

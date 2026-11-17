@@ -1,0 +1,117 @@
+"""Extract individual source artwork and transcribed PDF strings; never flatten a screen.
+Run with Unreal's Python and Saved/PdfTools on sys.path (tools are development-only).
+"""
+import sys, json, hashlib
+from pathlib import Path
+root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root/'Saved/PdfTools'))
+import fitz
+source = Path(sys.argv[1]) if len(sys.argv)>1 else Path(r'C:\Users\CHUUNI\Downloads\System Design.pdf')
+doc = fitz.open(source)
+target = root/'Content/Kiosk/DesignSource'
+target.mkdir(parents=True,exist_ok=True)
+objects = {'Train':245,'Map':1793,'Purchase':1487,'TopUp':1491,'Destination':1631,'DayPass':1635,'Collection':229,'CardReader':233,'PaymentTerminal':237}
+manifest = {'source':source.name,'sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'pages':len(doc),'assets':[]}
+for name, xref in objects.items():
+    pix = fitz.Pixmap(doc,xref)
+    smask = int(doc.xref_get_key(xref,'SMask')[1].split()[0]) if doc.xref_get_key(xref,'SMask')[0]=='xref' else 0
+    if smask: pix=fitz.Pixmap(pix,fitz.Pixmap(doc,smask))
+    pix.save(str(target/(name+'.png')))
+    manifest['assets'].append({'name':name,'pdf_object':xref,'width':pix.width,'height':pix.height})
+# The assistance illustration is a composition of a green ring, bell and shadows.
+# Render just that isolated illustration, without any screen text or controls.
+bell_clip = fitz.Rect(198,86,282,170)
+doc[8].get_pixmap(matrix=fitz.Matrix(4,4),clip=bell_clip,alpha=False).save(str(target/'Assistance.png'))
+manifest['assets'].append({'name':'Assistance','pdf_page':9,'illustration_clip':list(bell_clip)})
+for name, clip in [('Help',(558,293,650,385)),('AssistanceLabel',(555,267,652,290))]:
+    rect=fitz.Rect(clip)
+    doc[6].get_pixmap(matrix=fitz.Matrix(4,4),clip=rect,alpha=False).save(str(target/(name+'.png')))
+    manifest['assets'].append({'name':name,'pdf_page':7,'illustration_clip':list(rect)})
+(target/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+
+# Four columns in each entry: English, Chinese, Malay, Tamil. Wording is transcribed
+# from pages 7-148. Prototype additions are explicitly marked below.
+entries={
+'Back':["<<Back", "<<返回", "<<Kembali", "<<பின்செல்"],
+'Options':["Select Options", "请选择服务", "Pilih Pilihan", "விருப்பத்தைத் தேர்ந்தெடுக்கவும்"],
+'Purchase':["Purchase ticket", "购买车票", "Beli Tiket", "டிக்கெட் வாங்கவும்"],
+'TopUp':["Top up Transit card", "交通卡充值", "Tambah Nilai Kad Transit", "பயண அட்டைக்கு மதிப்பு சேர்க்கவும்"],
+'TicketType':["Single use ticket", "单程票", "Tiket Sekali Guna", "ஒருமுறை பயண டிக்கெட்"],
+'Destination':["Destination select", "选择目的地", "Pilih Destinasi", "சேருமிடத் தேர்வு"],
+'DayPass':["Day Pass", "一日通票", "Pas Harian", "ஒரு நாள் பாஸ்"],
+'DayValidity':["Day Pass valid till the end of the day", "当天内有效", "Sah sehingga tamat hari", "அன்றைய நாள் முடியும் வரை செல்லுபடியாகும்"],
+'DestinationTitle':["Select your destination", "请选择您的目的地", "Pilih destinasi anda", "உங்கள் சேருமிடத்தைத் தேர்ந்தெடுக்கவும்"],
+'AmountTitle':["Select amount to top up", "请选择充值金额", "Pilih jumlah tambah nilai", "தொகையைத் தேர்ந்தெடுக்கவும்"],
+'Balance':["Card balance:", "卡内余额：", "Baki kad:", "அட்டை இருப்பு:"],
+'PlaceCard':["Please place your transit card", "请放置您的交通卡", "Sila letakkan kad transit anda", "உங்கள் பயண அட்டையை வைக்கவும்"],
+'ReaderBelow':["on the Transit Card Reader below", "于下方的交通卡读卡器上", "di atas Pembaca Kad Transit di bawah", "கீழே உள்ள பயண அட்டை வாசிப்பானில்"],
+'TripTitle':["Choose your trip", "选择行程类型", "Pilih jenis perjalanan", "பயண வகையைத் தேர்ந்தெடுக்கவும்"],
+'TripQuestion':["One-way or round trip?", "单程还是往返？", "Sehala atau pergi-balik?", "ஒருவழியா அல்லது இருவழியா?"],
+'OneWay':["One-way", "单程", "Sehala", "ஒருவழி"],
+'RoundTrip':["Round trip", "往返", "Pergi-balik", "இருவழி"],
+'SingleJourney':["Single journey", "单次行程", "Satu perjalanan", "ஒரு பயணம்"],
+'ReturnDiscount':["Return trip 50% off", "回程享5折优惠", "Perjalanan pulang diskaun 50%", "திரும்பும் பயணம் 50% தள்ளுபடி"],
+'Cancel':["Cancel", "取消", "Batal", "ரத்துசெய்"],
+'Payment':["Card Payment", "刷卡付款", "Pembayaran Kad", "அட்டை மூலம் கட்டணம்"],
+'SingleTicket':["Single trip ticket", "单程票", "Tiket perjalanan sehala", "ஒருவழி பயண டிக்கெட்"],
+'RoundTicket':["Round trip ticket", "往返车票", "Tiket pergi-balik", "இருவழி பயண டிக்கெட்"],
+'DayDescription':["Day Pass (valid till end of day)", "一日通票（当天内有效）", "Pas Harian (sah sehingga tamat hari)", "ஒரு நாள் பாஸ் (அன்று முழுவதும் செல்லுபடி)"],
+'Total':["Total", "总额", "Jumlah", "மொத்தம்"],
+'TapCard':["Please tap your card on the reader  →", "请在读卡器上拍卡  →", "Sila ketik kad anda pada pembaca  →", "வாசிப்பானில் அட்டையைத் தட்டவும்  →"],
+'Processing':["Processing payment...", "正在处理付款…", "Sedang memproses pembayaran…", "கட்டணம் செயலாக்கப்படுகிறது…"],
+'DoNotRemove':["Please do not remove your card", "请勿移开您的卡", "Jangan alihkan kad anda", "உங்கள் அட்டையை அகற்ற வேண்டாம்"],
+'Success':["Payment successful", "付款成功", "Pembayaran berjaya", "கட்டணம் வெற்றிகரமாகச் செலுத்தப்பட்டது"],
+'Collect':["Please collect your ticket / card", "请取走您的车票／卡", "Sila ambil tiket / kad anda", "உங்கள் டிக்கெட் / அட்டையைப் பெற்றுக்கொள்ளவும்"],
+'Thanks':["Thank you!", "谢谢！", "Terima kasih!", "நன்றி!"],
+'HelpTitle':["Help is on the way", "工作人员马上就到", "Bantuan sedang dalam perjalanan", "உதவி வந்துகொண்டிருக்கிறது"],
+'HelpMessage':["A staff member will assist you shortly.", "工作人员将很快为您提供协助。", "Kakitangan akan membantu anda sebentar lagi.", "ஒரு பணியாளர் விரைவில் உங்களுக்கு உதவுவார்."],
+'OK':["OK", "好的", "OK", "சரி"],
+'Station':["Station", "站", "Stesen", "நிலையம்"],
+'To':["To:", "前往：", "Ke:", "செல்லுமிடம்:"],
+'Fare':["Fare:", "车费：", "Tambang:", "கட்டணம்:"],
+'Confirm':["Confirm", "确认", "Sahkan", "உறுதிசெய்"],
+'Exit':["Exit", "退出", "Keluar", "வெளியேறு"],
+'Done':["Return to Welcome", "返回欢迎界面", "Kembali ke skrin alu-aluan", "வரவேற்புத் திரைக்குத் திரும்பு"],
+'Owned':["Already purchased this play session", "本次游戏已购买", "Sudah dibeli dalam sesi ini", "இந்த அமர்வில் ஏற்கனவே வாங்கப்பட்டது"],
+'Demo':["DEMONSTRATION ONLY", "仅供演示", "DEMONSTRASI SAHAJA", "செயல்விளக்கம் மட்டும்"],
+'CollectTitle':["Please collect your ticket", "请领取您的车票", "Sila ambil tiket anda", "உங்கள் பயணச்சீட்டை எடுத்துக்கொள்ளவும்"],
+'CollectInstruction':["Your ticket is ready in the dispenser.\nClick the highlighted dispenser to collect it.\nCollect it to unlock the kiosk.", "您的车票已在取票口准备好。\n请点击高亮的取票口领取。\n领取后才能继续操作。", "Tiket anda sedia di ruang pengambilan.\nKlik ruang pengambilan yang diserlahkan.\nAmbil tiket untuk membuka semula kawalan kiosk.", "உங்கள் பயணச்சீட்டு தயாராக உள்ளது.\nஒளிரும் வழங்கும் இடத்தை கிளிக் செய்து எடுக்கவும்.\nஎடுத்த பிறகு இயந்திரத்தைப் பயன்படுத்தலாம்."],
+'CollectHelp':["All kiosk controls are locked until you collect your item.", "领取物品前，所有售票机操作均已锁定。", "Semua kawalan kiosk dikunci sehingga barang anda diambil.", "உங்கள் பொருளை எடுக்கும் வரை இயந்திரக் கட்டுப்பாடுகள் முடக்கப்பட்டுள்ளன."],
+'CollectHint':["Click the highlighted dispenser to collect your ticket. Controls unlock after pickup.", "请点击高亮的取票口领取车票。领取后才能操作。", "Klik ruang pengambilan yang diserlahkan untuk mengambil tiket. Kawalan dibuka selepas pengambilan.", "ஒளிரும் வழங்கும் இடத்தை கிளிக் செய்து பயணச்சீட்டை எடுக்கவும். எடுத்த பிறகு கட்டுப்பாடுகள் இயங்கும்."],
+'CollectCardTitle':["Please collect your transit card", "请取回您的交通卡", "Sila ambil kad transit anda", "உங்கள் பயண அட்டையை எடுத்துக்கொள்ளவும்"],
+'CollectCardInstruction':["Your transit card is still on the holder.\nClick the highlighted holder to collect it.\nCollect it to unlock the kiosk.", "您的交通卡仍在卡托上。\n请点击高亮的卡托取回交通卡。\n取回后才能继续操作。", "Kad transit anda masih di pemegang kad.\nKlik pemegang yang diserlahkan untuk mengambilnya.\nAmbil kad untuk membuka semula kawalan kiosk.", "உங்கள் பயண அட்டை தாங்கியில் உள்ளது.\nஒளிரும் தாங்கியை கிளிக் செய்து எடுக்கவும்.\nஎடுத்த பிறகு இயந்திரத்தைப் பயன்படுத்தலாம்."],
+'CollectCardHint':["Click the highlighted card holder to collect your card. Controls unlock after pickup.", "请点击高亮的卡托取回交通卡。取回后才能操作。", "Klik pemegang kad yang diserlahkan untuk mengambil kad. Kawalan dibuka selepas pengambilan.", "ஒளிரும் அட்டைத் தாங்கியை கிளிக் செய்து அட்டையை எடுக்கவும். எடுத்த பிறகு கட்டுப்பாடுகள் இயங்கும்."],
+'QuantityTitle':["Number of tickets", "车票数量", "Bilangan tiket", "பயணச்சீட்டு எண்ணிக்கை"],
+'QuantityInstruction':["One ticket will be printed for each person.\nChoose how many people are travelling.", "每人将获得一张车票。\n请选择乘客人数。", "Satu tiket akan dicetak untuk setiap orang.\nPilih bilangan penumpang.", "ஒவ்வொருவருக்கும் ஒரு பயணச்சீட்டு.\nபயணிகளின் எண்ணிக்கையைத் தேர்ந்தெடுக்கவும்."],
+'People':["People", "人数", "Penumpang", "பயணிகள்"],
+'UnitFare':["Per ticket", "单张票价", "Setiap tiket", "ஒரு பயணச்சீட்டு"],
+'Continue':["Continue", "继续", "Teruskan", "தொடரவும்"],
+'CollectStackTitle':["Please collect your tickets", "请领取您的车票", "Sila ambil tiket anda", "உங்கள் பயணச்சீட்டுகளை எடுத்துக்கொள்ளவும்"],
+'CollectStackInstruction':["Your {count} tickets are ready in the dispenser.\nClick the highlighted dispenser to collect the stack.\nCollect them to unlock the kiosk.", "您的 {count} 张车票已在取票口准备好。\n请点击高亮的取票口领取整叠车票。\n领取后才能继续操作。", "{count} tiket anda sedia di ruang pengambilan.\nKlik ruang yang diserlahkan untuk mengambil semua tiket.\nAmbil tiket untuk membuka semula kawalan kiosk.", "உங்கள் {count} பயணச்சீட்டுகள் தயாராக உள்ளன.\nஒளிரும் வழங்கும் இடத்தை கிளிக் செய்து அனைத்தையும் எடுக்கவும்.\nஎடுத்த பிறகு இயந்திரத்தைப் பயன்படுத்தலாம்."],
+}
+(target/'Localization.json').write_text(json.dumps({'languages':['English','Chinese','Malay','Tamil'],'strings':entries,'prototype_additions':['Exit', 'Done', 'Owned', 'Demo', 'CollectTitle', 'CollectInstruction', 'CollectHelp', 'CollectHint', 'CollectCardTitle', 'CollectCardInstruction', 'CollectCardHint', 'QuantityTitle', 'QuantityInstruction', 'People', 'UnitFare', 'Continue', 'CollectStackTitle', 'CollectStackInstruction']},ensure_ascii=False,indent=2),encoding='utf-8')
+def literal(value): return 'TEXT('+json.dumps(value,ensure_ascii=False)+')'
+rows=[]
+for key, values in entries.items():
+    rows.append('        {'+literal(key)+', {'+', '.join(literal(v) for v in values)+'}}')
+cpp='''// Generated by Scripts/extract_kiosk_design.py; PDF text plus marked prototype additions.
+#include "TransitKioskText.h"
+
+int32 KioskLanguageIndex(const FString& Language)
+{
+    if (Language == TEXT("Chinese")) return 1;
+    if (Language == TEXT("Malay")) return 2;
+    if (Language == TEXT("Tamil")) return 3;
+    return 0;
+}
+FString KioskText(const FString& Language, FName Key)
+{
+    static const TMap<FName, TArray<FString>> Strings = {
+'''+',\n'.join(rows)+'''
+    };
+    if (const auto* Values = Strings.Find(Key)) return (*Values)[KioskLanguageIndex(Language)];
+    return Key.ToString();
+}
+'''
+(root/'Source/Transit/TransitKioskText.cpp').write_text(cpp,encoding='utf-8')
+print(f'Extracted {len(objects)} image objects, three isolated hardware illustrations, and {len(entries)} four-language strings from {len(doc)} pages.')
