@@ -7,6 +7,7 @@ class UButton;
 class UTextBlock;
 class UTransitKioskWidget;
 class ATransitKioskActor;
+enum class EKioskSound : uint8;
 UCLASS()
 class UTransitKioskButtonBinding : public UObject
 {
@@ -51,13 +52,17 @@ class TRANSIT_API UTransitKioskWidget : public UUserWidget
     void UnbindButtons();
     void SetText(FName Name, const FString &Value);
     void FinishPayment();
+    void FinishTopUpCancellation();
+    void PlayFeedback(EKioskSound Cue);
     UPROPERTY(Transient) TObjectPtr<UTransitKioskSession> Session;
     UPROPERTY(Transient) TArray<TObjectPtr<UTransitKioskButtonBinding>> ButtonBindings;
     TMap<FName, FSlateFontInfo> OriginalFonts;
     FTimerHandle PaymentTimer;
+    FTimerHandle TopUpCancellationTimer;
     bool bShuttingDown = false;
     bool bWorldSpace = false;
     TWeakObjectPtr<ATransitKioskActor> PhysicalKiosk;
+    EKioskPopup LastPresentedPopup=EKioskPopup::None;
 };
 
 /** A small noninteractive aim indicator; the kiosk itself is rendered in the world. */

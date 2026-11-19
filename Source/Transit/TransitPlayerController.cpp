@@ -209,6 +209,7 @@ void ATransitPlayerController::OpenKiosk()
     if (PlayerInput) PlayerInput->FlushPressedKeys();
     KioskAim = CreateWidget<UTransitKioskAimWidget>(this);
     if (KioskAim) KioskAim->AddToPlayerScreen(20);
+    ActiveKiosk->PlayKioskSound(EKioskSound::Start);
     UpdateKioskPrompt();
 }
 
@@ -220,15 +221,21 @@ void ATransitPlayerController::CloseKiosk()
 void ATransitPlayerController::CloseKioskInternal(bool bForce)
 {
     if (!KioskWidget) return;
-    if (!bForce && KioskWidget->GetSession() && KioskWidget->GetSession()->HasPendingCollection())
+    const auto* Session = KioskWidget->GetSession();
+    if (!bForce && Session)
     {
-        KioskWidget->ShowCollectionWarning();
-        return;
-    }
-    if (!bForce && KioskWidget->GetSession() && KioskWidget->GetSession()->bCardPresent)
-    {
-        KioskWidget->RequireCardCollection();
-        return;
+        if (Session->Popup == EKioskPopup::TopUpCancelled) return;
+        if (Session->HasPendingCollection())
+        {
+            if (ActiveKiosk.IsValid()) ActiveKiosk->PlayKioskSound(EKioskSound::Reject);
+            KioskWidget->ShowCollectionWarning();
+            return;
+        }
+        if (Session->bCardPresent)
+        {
+            KioskWidget->RequireCardCollection();
+            return;
+        }
     }
     KioskPointer->ReleasePointerKey(EKeys::LeftMouseButton);
     KioskPointer->SetCustomHitResult(FHitResult());
@@ -281,11 +288,19 @@ void ATransitPlayerController::UpdateKioskInteraction()
 {
     bPointerOnScreen = false;
     HardwareAction = NAME_None;
-    if (!KioskWidget || !ActiveKiosk.IsValid())
+    const auto* Session = KioskWidget ? KioskWidget->GetSession() : nullptr;
+    if (!Session || !ActiveKiosk.IsValid())
     {
         KioskPointer->SetCustomHitResult(FHitResult());
         return;
     }
+    if (Session->Popup == EKioskPopup::TopUpCancelled)
+    {
+        KioskPointer->SetCustomHitResult(FHitResult());
+        if (KioskAim) KioskAim->SetAimHint(FString(), false);
+        return;
+    }
+    const bool bCanTakeUnpaidCard = Session->CanCancelUnpaidTopUp();
     FHitResult Hit;
     FVector Eye;
     FRotator View;
@@ -299,19 +314,21 @@ void ATransitPlayerController::UpdateKioskInteraction()
         {
             const FString Name = Hit.GetComponent()->GetFName().GetPlainNameString();
             if ((Name==TEXT("CollectionItem") || Name.StartsWith(TEXT("Collection")) || Name==TEXT("TicketCollection")) && ActiveKiosk->HasUncollectedTicket()) HardwareAction=TEXT("CollectTicket");
-            else if (Name == TEXT("TransitCardProp")) HardwareAction = KioskWidget->GetSession()->bCardAwaitingCollection ? TEXT("CollectCard") : TEXT("ReadCard");
+            else if (Name == TEXT("TransitCardProp"))
+            {
+                HardwareAction = Session->bCardAwaitingCollection || bCanTakeUnpaidCard ? TEXT("CollectCard") : TEXT("ReadCard");
+            }
             else if (Name.StartsWith(TEXT("Payment"))) HardwareAction = TEXT("Pay");
             else if (Name.StartsWith(TEXT("Help"))) HardwareAction = TEXT("Help");
-            else if (Name.StartsWith(TEXT("TransitCardReader")) || Name.StartsWith(TEXT("CardReader")) || Name.StartsWith(TEXT("CardHolder"))) HardwareAction = KioskWidget->GetSession()->bCardAwaitingCollection ? TEXT("CollectCard") : TEXT("ReadCard");
+            else if (Name.StartsWith(TEXT("TransitCardReader")) || Name.StartsWith(TEXT("CardReader")) || Name.StartsWith(TEXT("CardHolder"))) HardwareAction = Session->bCardAwaitingCollection ? TEXT("CollectCard") : TEXT("ReadCard");
         }
     }
-    auto* Session = KioskWidget->GetSession();
     const bool bCollecting = Session->HasPendingCollection();
     KioskPointer->SetCustomHitResult(bPointerOnScreen && !bCollecting ? Hit : FHitResult());
     if (KioskAim)
     {
         const bool bReady = HardwareAction == TEXT("CollectTicket") ? Session->bTicketAwaitingCollection :
-            HardwareAction == TEXT("CollectCard") ? Session->bCardAwaitingCollection :
+            HardwareAction == TEXT("CollectCard") ? Session->bCardAwaitingCollection || bCanTakeUnpaidCard :
             bCollecting ? false :
             HardwareAction == TEXT("Help") ? Session->Popup != EKioskPopup::Assistance :
             bPointerOnScreen ? KioskPointer->IsOverInteractableWidget() :
@@ -319,7 +336,9 @@ void ATransitPlayerController::UpdateKioskInteraction()
             HardwareAction == TEXT("ReadCard") && Session->Page == EKioskPage::CardPlacement && Session->Popup == EKioskPopup::None;
         FString Hint = TEXT("Mouse: look   |   Click: interact   |   Esc: exit   |   DEMONSTRATION ONLY");
         if (bCollecting) Hint = KioskText(Session->Language,Session->bCardAwaitingCollection ? TEXT("CollectCardHint") : TEXT("CollectHint"));
-        if (bReady && !HardwareAction.IsNone() && !bCollecting)
+        else if (bCanTakeUnpaidCard && HardwareAction == TEXT("CollectCard"))
+            Hint = KioskText(Session->Language, TEXT("CancelTopUpHint"));
+        else if (bReady && !HardwareAction.IsNone())
         {
             const FString ActionHint = HardwareAction == TEXT("CollectTicket") ? TEXT("collect ticket") :
                 HardwareAction == TEXT("Pay") ? TEXT("tap payment card") :
@@ -348,7 +367,12 @@ bool ATransitPlayerController::InputKey(const FInputKeyEventArgs& Args)
             KioskPointer->TickComponent(0,LEVELTICK_All,nullptr);
             if (HardwareAction == TEXT("CollectTicket")) ActiveKiosk->CollectTicket();
             else if (HardwareAction == TEXT("CollectCard")) ActiveKiosk->CollectCard();
-            else if (KioskWidget->GetSession()->HasPendingCollection()) KioskWidget->ShowCollectionWarning();
+            else if (KioskWidget->GetSession()->HasPendingCollection())
+            {
+                if (!HardwareAction.IsNone()) ActiveKiosk->PlayKioskSound(EKioskSound::Click);
+                if (bPointerOnScreen || !HardwareAction.IsNone()) ActiveKiosk->PlayKioskSound(EKioskSound::Reject);
+                KioskWidget->ShowCollectionWarning();
+            }
             else if (bPointerOnScreen) KioskPointer->PressPointerKey(EKeys::LeftMouseButton);
             else if (!HardwareAction.IsNone()) KioskWidget->HandleAction(HardwareAction);
         }
@@ -357,7 +381,7 @@ bool ATransitPlayerController::InputKey(const FInputKeyEventArgs& Args)
     }
     if (Args.Event == IE_Pressed)
     {
-        if (Args.Key == EKeys::Escape) { CloseKiosk(); return true; }
+        if (Args.Key == EKeys::Escape) { KioskWidget->HandleAction(TEXT("Exit")); return true; }
         if (Args.Key == EKeys::C) { KioskWidget->HandleAction(TEXT("ReadCard")); return true; }
         if (Args.Key == EKeys::P) { KioskWidget->HandleAction(TEXT("Pay")); return true; }
         if (Args.Key == EKeys::F1) { KioskWidget->HandleAction(TEXT("Help")); return true; }

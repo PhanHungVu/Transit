@@ -201,7 +201,7 @@ bool UTransitKioskSession::CompletePayment(const FDateTime &Now)
 }
 bool UTransitKioskSession::ShowAssistance()
 {
-    if (HasPendingCollection() || Popup == EKioskPopup::Assistance)
+    if (HasPendingCollection() || Popup == EKioskPopup::Assistance || Popup == EKioskPopup::TopUpCancelled)
         return false;
     PopupBeforeAssistance = Popup;
     Popup = EKioskPopup::Assistance;
@@ -237,8 +237,23 @@ bool UTransitKioskSession::RequestCardCollection()
     PopupBeforeAssistance = EKioskPopup::None;
     return true;
 }
+bool UTransitKioskSession::CanCancelUnpaidTopUp() const
+{
+    const auto TransactionPopup = Popup == EKioskPopup::Assistance ? PopupBeforeAssistance : Popup;
+    return bCardPresent && !HasPendingCollection() && Product == EKioskProduct::TopUp && Page == EKioskPage::TopUp &&
+           (TransactionPopup == EKioskPopup::None || TransactionPopup == EKioskPopup::Payment);
+}
 bool UTransitKioskSession::CollectCard()
 {
+    if (CanCancelUnpaidTopUp())
+    {
+        bCardPresent = false;
+        TopUpCents = 0;
+        Product = EKioskProduct::None;
+        Popup = EKioskPopup::TopUpCancelled;
+        PopupBeforeAssistance = EKioskPopup::None;
+        return true;
+    }
     if (!bCardPresent || !bCardAwaitingCollection) return false;
     bCardAwaitingCollection = false;
     bCardPresent = false;

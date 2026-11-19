@@ -22,7 +22,7 @@ public class Transit : ModuleRules
 			"SlateCore"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "AudioMixer" });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"Transit",

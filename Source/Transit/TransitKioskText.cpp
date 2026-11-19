@@ -11,6 +11,10 @@ int32 KioskLanguageIndex(const FString& Language)
 FString KioskText(const FString& Language, FName Key)
 {
     static const TMap<FName, TArray<FString>> Strings = {
+        {TEXT("TopUpCancelledTitle"), {TEXT("Top-up cancelled"), TEXT("充值已取消"), TEXT("Tambah nilai dibatalkan"), TEXT("மதிப்பு சேர்த்தல் ரத்துசெய்யப்பட்டது")}},
+        {TEXT("TopUpCancelledMessage"), {TEXT("Card returned. No charge was made."), TEXT("已取回交通卡，未扣款。"), TEXT("Kad telah diambil semula. Tiada caj dikenakan."), TEXT("அட்டையைத் திரும்ப எடுத்துவிட்டீர்கள். கட்டணம் வசூலிக்கப்படவில்லை.")}},
+        {TEXT("TopUpCancelledReturn"), {TEXT("Returning to Welcome in 5 seconds."), TEXT("5 秒后返回欢迎页面。"), TEXT("Kembali ke skrin alu-aluan dalam 5 saat."), TEXT("5 வினாடிகளில் வரவேற்புத் திரைக்குத் திரும்பும்.")}},
+        {TEXT("CancelTopUpHint"), {TEXT("Click your card to take it back and cancel the top-up."), TEXT("点击您的交通卡取回并取消充值。"), TEXT("Klik kad anda untuk mengambilnya semula dan membatalkan tambah nilai."), TEXT("அட்டையைத் திரும்ப எடுத்து மதிப்பு சேர்ப்பதை ரத்துசெய்ய அதைக் கிளிக் செய்யவும்.")}},
         {TEXT("Back"), {TEXT("<<Back"), TEXT("<<返回"), TEXT("<<Kembali"), TEXT("<<பின்செல்")}},
         {TEXT("Options"), {TEXT("Select Options"), TEXT("请选择服务"), TEXT("Pilih Pilihan"), TEXT("விருப்பத்தைத் தேர்ந்தெடுக்கவும்")}},
         {TEXT("Purchase"), {TEXT("Purchase ticket"), TEXT("购买车票"), TEXT("Beli Tiket"), TEXT("டிக்கெட் வாங்கவும்")}},

@@ -9,6 +9,8 @@
 #include "TimerManager.h"
 #include "TransitKioskWidget.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Sound/SoundBase.h"
+#include "Kismet/GameplayStatics.h"
 
 // Sets default values
 ATransitKioskActor::ATransitKioskActor()
@@ -17,6 +19,40 @@ ATransitKioskActor::ATransitKioskActor()
 
     static ConstructorHelpers::FClassFinder<UTransitKioskWidget> UI(TEXT("/Game/Kiosk/UI/KioskUI"));
     TouchscreenClass = UI.Class;
+    static ConstructorHelpers::FObjectFinder<USoundBase> Start(TEXT("/Game/Sound/Start.Start"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Click(TEXT("/Game/Sound/Click.Click"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Accept(TEXT("/Game/Sound/Accept_Sound.Accept_Sound"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Reject(TEXT("/Game/Sound/Reject_Sound.Reject_Sound"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Help(TEXT("/Game/Sound/Help.Help"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Payment(TEXT("/Game/Sound/PaymentShowUp.PaymentShowUp"));
+    static ConstructorHelpers::FObjectFinder<USoundBase> Pickup(TEXT("/Game/Sound/PickUp.PickUp"));
+    Audio.Start=Start.Object; Audio.Click=Click.Object; Audio.Accept=Accept.Object; Audio.Reject=Reject.Object;
+    Audio.Help=Help.Object; Audio.PaymentShowUp=Payment.Object; Audio.PickUp=Pickup.Object;
+}
+
+USoundBase* ATransitKioskActor::GetKioskSound(EKioskSound Cue) const
+{
+    switch(Cue)
+    {
+    case EKioskSound::Start: return Audio.Start;
+    case EKioskSound::Click: return Audio.Click;
+    case EKioskSound::Accept: return Audio.Accept;
+    case EKioskSound::Reject: return Audio.Reject;
+    case EKioskSound::Help: return Audio.Help;
+    case EKioskSound::PaymentShowUp: return Audio.PaymentShowUp;
+    case EKioskSound::PickUp: return Audio.PickUp;
+    default: return nullptr;
+    }
+}
+void ATransitKioskActor::PlayKioskSound(EKioskSound Cue)
+{
+    auto* Sound=GetKioskSound(Cue);
+    if (!bAudioEnabled || AudioVolume<=0 || !Sound || !GetWorld() || !GetWorld()->IsGameWorld()) return;
+    ++SoundEventCounts.FindOrAdd(Cue);
+    // UI cues remain clear as the player looks around the nearby physical machine.
+    const float Gain=FMath::Clamp(AudioVolume,0.f,1.f)*(Cue==EKioskSound::Click ? .5f : 1.f);
+    UGameplayStatics::PlaySound2D(this,Sound,Gain,1.f,0.f,nullptr,this,true);
+    UE_LOG(LogTemp,Verbose,TEXT("KIOSK_SFX %s %s"),*StaticEnum<EKioskSound>()->GetNameStringByValue(static_cast<int64>(Cue)),*Sound->GetPathName());
 }
 
 bool ATransitKioskActor::CanInteract(const APlayerController* Player) const
@@ -123,6 +159,7 @@ bool ATransitKioskActor::CollectTicket()
 {
     if (!HasUncollectedTicket() || !TouchscreenWidget->GetSession()->CollectTicket()) return false;
     TouchscreenWidget->PhysicalItemCollected();
+    PlayKioskSound(EKioskSound::PickUp);
     return true;
 }
 
@@ -130,6 +167,7 @@ bool ATransitKioskActor::CollectCard()
 {
     if (!TouchscreenWidget || !TouchscreenWidget->GetSession() || !TouchscreenWidget->GetSession()->CollectCard()) return false;
     TouchscreenWidget->PhysicalItemCollected();
+    PlayKioskSound(EKioskSound::PickUp);
     return true;
 }
 void ATransitKioskActor::PrepareInteractionHighlights()

@@ -32,6 +32,10 @@ for name, clip in [('Help',(558,293,650,385)),('AssistanceLabel',(555,267,652,29
 # Four columns in each entry: English, Chinese, Malay, Tamil. Wording is transcribed
 # from pages 7-148. Prototype additions are explicitly marked below.
 entries={
+'TopUpCancelledTitle':["Top-up cancelled", "充值已取消", "Tambah nilai dibatalkan", "மதிப்பு சேர்த்தல் ரத்துசெய்யப்பட்டது"],
+'TopUpCancelledMessage':["Card returned. No charge was made.", "已取回交通卡，未扣款。", "Kad telah diambil semula. Tiada caj dikenakan.", "அட்டையைத் திரும்ப எடுத்துவிட்டீர்கள். கட்டணம் வசூலிக்கப்படவில்லை."],
+'TopUpCancelledReturn':["Returning to Welcome in 5 seconds.", "5 秒后返回欢迎页面。", "Kembali ke skrin alu-aluan dalam 5 saat.", "5 வினாடிகளில் வரவேற்புத் திரைக்குத் திரும்பும்."],
+'CancelTopUpHint':["Click your card to take it back and cancel the top-up.", "点击您的交通卡取回并取消充值。", "Klik kad anda untuk mengambilnya semula dan membatalkan tambah nilai.", "அட்டையைத் திரும்ப எடுத்து மதிப்பு சேர்ப்பதை ரத்துசெய்ய அதைக் கிளிக் செய்யவும்."],
 'Back':["<<Back", "<<返回", "<<Kembali", "<<பின்செல்"],
 'Options':["Select Options", "请选择服务", "Pilih Pilihan", "விருப்பத்தைத் தேர்ந்தெடுக்கவும்"],
 'Purchase':["Purchase ticket", "购买车票", "Beli Tiket", "டிக்கெட் வாங்கவும்"],
@@ -89,7 +93,7 @@ entries={
 'CollectStackTitle':["Please collect your tickets", "请领取您的车票", "Sila ambil tiket anda", "உங்கள் பயணச்சீட்டுகளை எடுத்துக்கொள்ளவும்"],
 'CollectStackInstruction':["Your {count} tickets are ready in the dispenser.\nClick the highlighted dispenser to collect the stack.\nCollect them to unlock the kiosk.", "您的 {count} 张车票已在取票口准备好。\n请点击高亮的取票口领取整叠车票。\n领取后才能继续操作。", "{count} tiket anda sedia di ruang pengambilan.\nKlik ruang yang diserlahkan untuk mengambil semua tiket.\nAmbil tiket untuk membuka semula kawalan kiosk.", "உங்கள் {count} பயணச்சீட்டுகள் தயாராக உள்ளன.\nஒளிரும் வழங்கும் இடத்தை கிளிக் செய்து அனைத்தையும் எடுக்கவும்.\nஎடுத்த பிறகு இயந்திரத்தைப் பயன்படுத்தலாம்."],
 }
-(target/'Localization.json').write_text(json.dumps({'languages':['English','Chinese','Malay','Tamil'],'strings':entries,'prototype_additions':['Exit', 'Done', 'Owned', 'Demo', 'CollectTitle', 'CollectInstruction', 'CollectHelp', 'CollectHint', 'CollectCardTitle', 'CollectCardInstruction', 'CollectCardHint', 'QuantityTitle', 'QuantityInstruction', 'People', 'UnitFare', 'Continue', 'CollectStackTitle', 'CollectStackInstruction']},ensure_ascii=False,indent=2),encoding='utf-8')
+(target/'Localization.json').write_text(json.dumps({'languages':['English','Chinese','Malay','Tamil'],'strings':entries,'prototype_additions':['Exit', 'Done', 'Owned', 'Demo', 'CollectTitle', 'CollectInstruction', 'CollectHelp', 'CollectHint', 'CollectCardTitle', 'CollectCardInstruction', 'CollectCardHint', 'QuantityTitle', 'QuantityInstruction', 'People', 'UnitFare', 'Continue', 'CollectStackTitle', 'CollectStackInstruction', 'TopUpCancelledTitle', 'TopUpCancelledMessage', 'TopUpCancelledReturn', 'CancelTopUpHint']},ensure_ascii=False,indent=2),encoding='utf-8')
 def literal(value): return 'TEXT('+json.dumps(value,ensure_ascii=False)+')'
 rows=[]
 for key, values in entries.items():

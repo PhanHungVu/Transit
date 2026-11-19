@@ -53,6 +53,8 @@
 #include "Interfaces/ISlateRHIRendererModule.h"
 
 #include "TransitKioskDesign.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundWave.h"
 UTransitKioskCommandlet::UTransitKioskCommandlet()
 {
     IsClient = false;
@@ -82,6 +84,28 @@ void DescribeWidget(UWidget *Widget, FString &Out, int32 Depth = 0)
 
 int32 UTransitKioskCommandlet::Main(const FString &Params)
 {
+    if (FParse::Param(*Params,TEXT("InspectAudio")))
+    {
+        auto* BP=LoadObject<UBlueprint>(nullptr,TEXT("/Game/Kiosk/Blueprint/BP_TransitKiosk"));
+        auto* Kiosk=BP ? Cast<ATransitKioskActor>(BP->GeneratedClass->GetDefaultObject()) : nullptr;
+        if (!Kiosk) return 1;
+        FString Report;
+        int32 Failures=0;
+        for (int32 I=0;I<7;++I)
+        {
+            const auto Cue=static_cast<EKioskSound>(I);
+            auto* Sound=Kiosk->GetKioskSound(Cue);
+            auto* Wave=Cast<USoundWave>(Sound);
+            const bool Good=Sound && Sound->GetDuration()>0 && Sound->GetDuration()<30 && (!Wave || !Wave->bLooping);
+            if (!Good) ++Failures;
+            Report+=FString::Printf(TEXT("%s %s asset=%s class=%s duration=%.3f channels=%d looping=%d\n"),Good ? TEXT("PASS") : TEXT("FAIL"),
+                *StaticEnum<EKioskSound>()->GetNameStringByValue(I),*GetPathNameSafe(Sound),*GetNameSafe(Sound ? Sound->GetClass() : nullptr),Sound ? Sound->GetDuration() : 0,Wave ? Wave->NumChannels : 0,Wave ? Wave->bLooping : 0);
+        }
+        Report+=FString::Printf(TEXT("Failures: %d\n"),Failures);
+        FFileHelper::SaveStringToFile(Report,*(FPaths::ProjectSavedDir()/TEXT("KioskAudioAssets.txt")));
+        UE_LOG(LogTemp,Display,TEXT("KIOSK_AUDIO_ASSETS\n%s"),*Report);
+        return Failures ? 1 : 0;
+    }
     if (FParse::Param(*Params,TEXT("UpdateInteraction")))
         return UpdateKioskInteractionAssets() ? 0 : 1;
     if (FParse::Param(*Params, TEXT("InspectHardware")))

@@ -1,5 +1,7 @@
 # Customer feedback update — 17 November 2026
 
+> Sound effects were added on 19 November. See [KioskAudio.md](KioskAudio.md) for the playback mapping, remaining SFX gaps and current build validation.
+
 This update extends [KioskInteractionCues.md](KioskInteractionCues.md): day passes can be purchased repeatedly, tickets support a passenger count, Help has physical/green feedback, and pickup highlights belong to the machine.
 
 ## Day passes and customer reset

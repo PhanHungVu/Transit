@@ -2,11 +2,13 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "TransitPlayerController.h"
 #include "TransitKioskActor.h"
+#include "TransitKioskText.h"
 #include "TransitKioskWidget.h"
 #include "Components/WidgetComponent.h"
 #include "Components/WidgetInteractionComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/Button.h"
+#include "Components/TextBlock.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/World.h"
@@ -86,16 +88,22 @@ struct FTransitKioskPOVCheck
     }
     void Click(FName Name)
     {
+        auto BeforeClick=MakeShared<int32>(0);
         Add([this,Name]{ AimButton(Name); });
-        Add([this,Name]
+        Add([this,Name,BeforeClick]
         {
+            *BeforeClick=Kiosk->GetSoundEventCount(EKioskSound::Click);
             Player->UpdateKioskInteraction();
             Player->KioskPointer->TickComponent(0,LEVELTICK_All,nullptr);
             Check(Player->KioskPointer->GetHoveredWidgetComponent() == Kiosk->GetTouchscreen() &&
                   Player->KioskPointer->IsOverInteractableWidget(),TEXT("Real screen ray ")+Name.ToString());
             Key(EKeys::LeftMouseButton,IE_Pressed);
         },.06f);
-        Add([this]{ Key(EKeys::LeftMouseButton,IE_Released,0); });
+        Add([this,Name,BeforeClick]
+        {
+            Key(EKeys::LeftMouseButton,IE_Released,0);
+            Check(Kiosk->GetSoundEventCount(EKioskSound::Click)==*BeforeClick+1,TEXT("One click SFX ")+Name.ToString());
+        });
     }
     void Hardware(FName Name)
     {
@@ -156,6 +164,7 @@ struct FTransitKioskPOVCheck
         },.06f);
         Add([this]{ Key(EKeys::E,IE_Released,0); },.5f);
         Assert(TEXT("E opens the existing kiosk"),[this]{return Player->IsKioskOpen();});
+        Assert(TEXT("Kiosk startup sound was requested"),[this]{return Kiosk->GetSoundEventCount(EKioskSound::Start)>0;});
     }
     void Exit()
     {
@@ -175,6 +184,63 @@ struct FTransitKioskPOVCheck
         Assert(TEXT("Terminal starts existing payment simulation"),[this]{return Session() && Session()->Popup==EKioskPopup::Processing;});
         Wait(2.4f);
         Assert(TEXT("World timer confirms payment"),[this]{return Session() && Session()->Popup==EKioskPopup::Success;});
+    }
+    void CancelTopUpByPickingUpCard(const FString& Stage, bool bTakeScreenshot = false)
+    {
+        Add([this] { Aim(HardwarePoint(TEXT("TransitCardProp"))); });
+        Add([this, Stage]
+        {
+            Player->UpdateKioskInteraction();
+            Check(Player->HardwareAction == TEXT("CollectCard"), Stage + TEXT(": the physical card offers pickup"));
+            const int32 Rejects = Kiosk->GetSoundEventCount(EKioskSound::Reject);
+            const int32 Pickups = Kiosk->GetSoundEventCount(EKioskSound::PickUp);
+            const int32 Balance = Session()->CardBalanceCents;
+            Key(EKeys::LeftMouseButton, IE_Pressed);
+            Check(Session()->Popup == EKioskPopup::TopUpCancelled && !Session()->bCardPresent &&
+                  !Session()->HasPendingCollection() && !Kiosk->FindPart(TEXT("TransitCardProp"))->IsVisible(),
+                  Stage + TEXT(": pickup cancels and removes the card immediately"));
+            Check(Session()->CardBalanceCents == Balance && Session()->GetTotalCents() == 0 &&
+                  Session()->ReceiptId.IsEmpty() && !Kiosk->IsPaymentScreenLit(),
+                  Stage + TEXT(": the bill is cleared without a charge"));
+            Check(Kiosk->GetSoundEventCount(EKioskSound::Reject) == Rejects + 1 &&
+                  Kiosk->GetSoundEventCount(EKioskSound::PickUp) == Pickups + 1,
+                  Stage + TEXT(": one Reject and one PickUp sound"));
+        }, .06f);
+        Add([this] { Key(EKeys::LeftMouseButton, IE_Released, 0); });
+        Assert(Stage + TEXT(": cancellation notice replaces the active screen"), [this]
+        {
+            const auto* Widget = Player->GetKioskWidget();
+            const auto* Title = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("LOC_CollectTitle")));
+            return Title && Title->GetText().ToString() == KioskText(Session()->Language, TEXT("TopUpCancelledTitle")) &&
+                   Widget->GetWidgetFromName(TEXT("CollectionWarning"))->GetVisibility() == ESlateVisibility::Visible &&
+                   Widget->GetWidgetFromName(TEXT("PopupLayer"))->GetVisibility() == ESlateVisibility::Collapsed;
+        });
+        Add([this]
+        {
+            Key(EKeys::LeftMouseButton, IE_Pressed);
+            Key(EKeys::LeftMouseButton, IE_Released, 0);
+            Key(EKeys::P, IE_Pressed);
+            Key(EKeys::C, IE_Pressed);
+            Key(EKeys::Escape, IE_Pressed);
+        });
+        if (bTakeScreenshot)
+        {
+            Add([this] { Aim(Kiosk->FindPart(TEXT("ScreenDisplay"))->GetComponentLocation()); });
+            Picture(TEXT("KioskTopUpCancelled.png"));
+        }
+        Wait(3.f);
+        Assert(Stage + TEXT(": the notice stays open and blocks payment, reinsertion and exit"), [this]
+        {
+            return Player->IsKioskOpen() && Session()->Popup == EKioskPopup::TopUpCancelled &&
+                   !Session()->bCardPresent && Session()->CardBalanceCents == 340;
+        });
+        Wait(2.f);
+        Assert(Stage + TEXT(": Welcome returns within the kiosk with the original balance"), [this]
+        {
+            return Player->IsKioskOpen() && Session()->Page == EKioskPage::Welcome &&
+                   Session()->Popup == EKioskPopup::None && Session()->CardBalanceCents == 340 &&
+                   Player->GetKioskWidget()->GetWidgetFromName(TEXT("CollectionWarning"))->GetVisibility() == ESlateVisibility::Collapsed;
+        });
     }
     void Build()
     {
@@ -255,6 +321,12 @@ struct FTransitKioskPOVCheck
         Assert(TEXT("Help ring clears after assistance and preserves quantity"),[this]{return !Kiosk->IsHelpRingLit() && Session()->Popup==EKioskPopup::Quantity && Session()->TicketQuantity==3;});
         Click(TEXT("BTN_QuantityConfirm"));
         Assert(TEXT("Card payment keeps three tickets and SGD 18.00 total"),[this]{return Session()->Popup==EKioskPopup::Payment && Session()->TicketQuantity==3 && Session()->GetTotalCents()==1800;});
+        Add([this]
+        {
+            const int32 Before=Kiosk->GetSoundEventCount(EKioskSound::PaymentShowUp);
+            Player->GetKioskWidget()->Refresh(); Player->GetKioskWidget()->Refresh();
+            Check(Before>0 && Kiosk->GetSoundEventCount(EKioskSound::PaymentShowUp)==Before,TEXT("Payment popup sound fires on appearance, not Refresh"));
+        });
         Assert(TEXT("Payment display and terminal outline light only when ready"),[this]{return Kiosk->IsPaymentScreenLit() && Kiosk->IsInteractionHighlighted(TEXT("PaymentReader")) && !Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader"));});
         Add([this]{Aim(HardwarePoint(TEXT("PaymentReader")));});
         Picture(TEXT("KioskInteraction_PaymentReady.png"));
@@ -306,10 +378,22 @@ struct FTransitKioskPOVCheck
         Hardware(TEXT("TransitCardProp"));
         Assert(TEXT("Unpaid physical card pickup restores placement page"),[this]{return !Session()->bCardPresent && Session()->Page==EKioskPage::CardPlacement && Session()->CardBalanceCents==340;});
         Exit(); Open();
+        StartLanguage(TEXT("BTN_LanguageEnglish")); Click(TEXT("BTN_TopUp")); Hardware(TEXT("TransitCardReader"));
+        CancelTopUpByPickingUpCard(TEXT("Before amount selection"), true);
+        StartLanguage(TEXT("BTN_LanguageTamil")); Click(TEXT("BTN_TopUp")); Hardware(TEXT("TransitCardReader"));
+        Click(TEXT("BTN_TopUp0"));
+        CancelTopUpByPickingUpCard(TEXT("After amount selection, before payment"));
         StartLanguage(TEXT("BTN_LanguageTamil")); Click(TEXT("BTN_TopUp")); Hardware(TEXT("TransitCardReader"));
         Click(TEXT("BTN_TopUp5"));
         Assert(TEXT("Top-up payment terminal lights up"),[this]{return Kiosk->IsPaymentScreenLit();});
-        Hardware(TEXT("PaymentReader")); Hardware(TEXT("HelpButton")); Wait(2.4f);
+        Hardware(TEXT("PaymentReader"));
+        Hardware(TEXT("TransitCardProp"));
+        Assert(TEXT("Card click during payment processing keeps the card and the payment in progress"), [this]
+        {
+            return Session()->Popup == EKioskPopup::Processing && Session()->bCardPresent &&
+                   Kiosk->FindPart(TEXT("TransitCardProp"))->IsVisible();
+        });
+        Hardware(TEXT("HelpButton")); Wait(2.4f);
         Assert(TEXT("Approved top-up interrupts Help with immediate physical card reminder"),[this]{return Session()->Popup==EKioskPopup::Success && Session()->CardBalanceCents==10340 && Session()->bCardPresent && Session()->bCardAwaitingCollection && Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader")) && !Kiosk->IsPaymentScreenLit();});
         for(const FString Language : {TEXT("English"),TEXT("Chinese"),TEXT("Malay"),TEXT("Tamil")})
         {
@@ -387,6 +471,12 @@ struct FTransitKioskPOVCheck
         {
             Check(!Player->KioskPointer->IsActive() && !Player->KioskAim,TEXT("Pointer and HUD removed on exit"));
             Check(!Player->ReturningCamera,TEXT("Temporary camera removed after blend"));
+            for (int32 I=0;I<7;++I)
+            {
+                const auto Cue=static_cast<EKioskSound>(I);
+                Check(Kiosk->GetKioskSound(Cue) && Kiosk->GetSoundEventCount(Cue)>0,TEXT("Configured SFX triggered by real interaction: ")+StaticEnum<EKioskSound>()->GetNameStringByValue(I));
+                Report+=FString::Printf(TEXT("SFX %s count=%d\n"),*StaticEnum<EKioskSound>()->GetNameStringByValue(I),Kiosk->GetSoundEventCount(Cue));
+            }
         });
     }
     bool Tick(float)

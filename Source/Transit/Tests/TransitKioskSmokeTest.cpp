@@ -25,10 +25,16 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 void StartTransitKioskPOVTest(ATransitPlayerController* Player);
+void StartTransitKioskAudioTest(ATransitPlayerController* Player);
 void StartTransitKioskSmokeTest(ATransitPlayerController *Player)
 {
     if (!FParse::Param(FCommandLine::Get(), TEXT("KioskSmokeTest")))
         return;
+    if (FParse::Param(FCommandLine::Get(),TEXT("KioskAudioTest")))
+    {
+        StartTransitKioskAudioTest(Player);
+        return;
+    }
     if (FParse::Param(FCommandLine::Get(),TEXT("KioskScaleAudit")))
     {
         auto Step=MakeShared<int32>(0);

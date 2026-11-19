@@ -10,6 +10,23 @@ class UWidgetComponent;
 class UTransitKioskWidget;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+class USoundBase;
+
+UENUM(BlueprintType)
+enum class EKioskSound : uint8 { Start, Click, Accept, Reject, Help, PaymentShowUp, PickUp };
+
+USTRUCT(BlueprintType)
+struct TRANSIT_API FTransitKioskAudio
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> Start;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> Click;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> Accept;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> Reject;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> Help;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> PaymentShowUp;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Audio") TObjectPtr<USoundBase> PickUp;
+};
 
 UCLASS()
 class TRANSIT_API ATransitKioskActor : public AActor
@@ -39,6 +56,12 @@ public:
     bool IsHelpRingLit() const { return bHelpRingLit; }
     float GetHelpDepression() const { return HelpDepression; }
     int32 GetDisplayedTicketCount() const;
+    void PlayKioskSound(EKioskSound Cue);
+    USoundBase* GetKioskSound(EKioskSound Cue) const;
+    int32 GetSoundEventCount(EKioskSound Cue) const { return SoundEventCounts.FindRef(Cue); }
+    UPROPERTY(EditAnywhere, Category="Kiosk|Audio") FTransitKioskAudio Audio;
+    UPROPERTY(EditAnywhere, Category="Kiosk|Audio",meta=(ClampMin="0",ClampMax="1")) float AudioVolume=.75f;
+    UPROPERTY(EditAnywhere, Category="Kiosk|Audio") bool bAudioEnabled=true;
     void GetInteractionView(float EyeHeight, FVector& Location, FRotator& Rotation) const;
     UPROPERTY(EditAnywhere, Category="Kiosk|Camera", meta=(ClampMin="50", ClampMax="100", Units="cm"))
     float StandingDistance = 75.f;
@@ -78,4 +101,5 @@ private:
     double HelpPressedAt = -1000;
     float HelpDepression = 0;
     FTimerHandle HelpFeedbackTimer;
+    TMap<EKioskSound,int32> SoundEventCounts;
 };

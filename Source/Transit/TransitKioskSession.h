@@ -24,7 +24,8 @@ enum class EKioskPopup : uint8
     Processing,
     Success,
     Assistance,
-    Quantity
+    Quantity,
+    TopUpCancelled
 };
 UENUM(BlueprintType)
 enum class EKioskProduct : uint8
@@ -107,6 +108,7 @@ class TRANSIT_API UTransitKioskSession : public UObject
     bool DismissAssistance();
     bool CompleteAndReset();
     bool CollectTicket();
+    bool CanCancelUnpaidTopUp() const;
     bool CollectCard();
     bool RequestCardCollection();
     bool HasPendingCollection() const { return bTicketAwaitingCollection || bCardAwaitingCollection; }

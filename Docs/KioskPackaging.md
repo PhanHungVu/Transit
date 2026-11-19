@@ -1,6 +1,6 @@
 # Windows Shipping packaging fix — 13 November 2026
 
-> Current project, 17 November: [KioskCustomerFeedback.md](KioskCustomerFeedback.md) documents repeat day-pass purchases, ticket quantity, animated Help feedback and machine pickup highlights. Its verification section identifies the current packaged build. The launcher location is `Saved/Packaged/POVVerified/Windows/Transit.exe`; keep the complete Windows folder together. The compiler fix below remains in place.
+> Current project, 19 November: [KioskAudio.md](KioskAudio.md) documents the supplied sound effects and current build validation. [KioskCustomerFeedback.md](KioskCustomerFeedback.md) covers repeat day passes, ticket quantity and animated Help. The launcher location is `Saved/Packaged/POVVerified/Windows/Transit.exe`; keep the complete Windows folder together. The compiler fix below remains in place.
 
 The Shipping build failed in `TransitKioskSmokeTest.cpp`: its `#else` fallback used `ATransitPlayerController`, but the header's forward declaration exists only when `WITH_DEV_AUTOMATION_TESTS` is enabled. Development builds never compiled that fallback, so previous Development checks did not expose the error.
 

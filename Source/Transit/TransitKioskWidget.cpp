@@ -20,11 +20,19 @@ void UTransitKioskButtonBinding::Click()
 }
 void UTransitKioskWidget::InitializeKiosk(const FTransitKioskConfig &Config, int32 Balance)
 {
-    if (GetWorld())
-        GetWorld()->GetTimerManager().ClearTimer(PaymentTimer);
+    if (auto* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(PaymentTimer);
+        World->GetTimerManager().ClearTimer(TopUpCancellationTimer);
+    }
     Session = NewObject<UTransitKioskSession>(this);
     Session->Configure(Config, Balance);
     bShuttingDown = false;
+    LastPresentedPopup=EKioskPopup::None;
+}
+void UTransitKioskWidget::PlayFeedback(EKioskSound Cue)
+{
+    if (PhysicalKiosk.IsValid()) PhysicalKiosk->PlayKioskSound(Cue);
 }
 void UTransitKioskWidget::SetPhysicalKiosk(ATransitKioskActor* Kiosk)
 {
@@ -141,12 +149,14 @@ void UTransitKioskWidget::Refresh()
         ->SetVisibility(Session->Page == EKioskPage::Welcome ? ESlateVisibility::Collapsed
                                                              : ESlateVisibility::SelfHitTestInvisible);
     const bool bCollecting = Session->HasPendingCollection();
+    const bool bCancelled = Session->Popup == EKioskPopup::TopUpCancelled;
+    const bool bNotice = bCollecting || bCancelled;
     const bool bModal = Session->Popup != EKioskPopup::None;
     GetWidgetFromName(TEXT("PopupLayer"))
-        ->SetVisibility(bModal && !bCollecting ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-    GetWidgetFromName(TEXT("WS_Pages"))->SetIsEnabled(!bModal && !bCollecting);
-    GetWidgetFromName(TEXT("BTN_Back"))->SetIsEnabled(!bModal && !bCollecting);
-    if (bModal)
+        ->SetVisibility(bModal && !bNotice ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    GetWidgetFromName(TEXT("WS_Pages"))->SetIsEnabled(!bModal && !bNotice);
+    GetWidgetFromName(TEXT("BTN_Back"))->SetIsEnabled(!bModal && !bNotice);
+    if (bModal && !bNotice)
         CastChecked<UWidgetSwitcher>(GetWidgetFromName(TEXT("WS_Popups")))
             ->SetActiveWidgetIndex(static_cast<int32>(Session->Popup) - 1);
     CastChecked<UButton>(GetWidgetFromName(TEXT("BTN_DayPass")))->SetIsEnabled(true);
@@ -208,10 +218,10 @@ void UTransitKioskWidget::Refresh()
                                                                 TEXT(" ") + Session->Money(Session->CardBalanceCents)
                                                           : TEXT("")) +
                 (Session->Product == EKioskProduct::DayPass ? TEXT("\n") + Session->ValidityText() : TEXT("")));
-    GetWidgetFromName(TEXT("BTN_HardwarePay"))->SetIsEnabled(!bCollecting && Session->Popup == EKioskPopup::Payment);
-    GetWidgetFromName(TEXT("BTN_HardwareCard"))->SetIsEnabled(!bCollecting && Session->Page == EKioskPage::CardPlacement && !bModal);
-    GetWidgetFromName(TEXT("BTN_HardwareHelp"))->SetIsEnabled(!bCollecting && Session->Popup != EKioskPopup::Assistance);
-    GetWidgetFromName(TEXT("BTN_ExitKiosk"))->SetIsEnabled(!bCollecting);
+    GetWidgetFromName(TEXT("BTN_HardwarePay"))->SetIsEnabled(!bNotice && Session->Popup == EKioskPopup::Payment);
+    GetWidgetFromName(TEXT("BTN_HardwareCard"))->SetIsEnabled(!bNotice && Session->Page == EKioskPage::CardPlacement && !bModal);
+    GetWidgetFromName(TEXT("BTN_HardwareHelp"))->SetIsEnabled(!bNotice && Session->Popup != EKioskPopup::Assistance);
+    GetWidgetFromName(TEXT("BTN_ExitKiosk"))->SetIsEnabled(!bNotice);
     SetText(TEXT("LOC_CollectTitle"),KioskText(Session->Language,Session->bCardAwaitingCollection ? TEXT("CollectCardTitle") : TEXT("CollectTitle")));
     SetText(TEXT("LOC_CollectInstruction"),KioskText(Session->Language,Session->bCardAwaitingCollection ? TEXT("CollectCardInstruction") : TEXT("CollectInstruction")));
     if (Session->bTicketAwaitingCollection && Session->TicketQuantity>1)
@@ -219,72 +229,80 @@ void UTransitKioskWidget::Refresh()
         SetText(TEXT("LOC_CollectTitle"),KioskText(Session->Language,TEXT("CollectStackTitle")));
         SetText(TEXT("LOC_CollectInstruction"),KioskText(Session->Language,TEXT("CollectStackInstruction")).Replace(TEXT("{count}"),*FString::FromInt(Session->TicketQuantity)));
     }
+    if (bCancelled)
+    {
+        SetText(TEXT("LOC_CollectTitle"), KioskText(Session->Language, TEXT("TopUpCancelledTitle")));
+        SetText(TEXT("LOC_CollectInstruction"), KioskText(Session->Language, TEXT("TopUpCancelledMessage")));
+        SetText(TEXT("LOC_CollectHelp"), KioskText(Session->Language, TEXT("TopUpCancelledReturn")));
+    }
     if (auto* Warning = GetWidgetFromName(TEXT("CollectionWarning")))
-        Warning->SetVisibility(bCollecting ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        Warning->SetVisibility(bNotice ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     if (PhysicalKiosk.IsValid()) PhysicalKiosk->UpdatePresentation();
+    const auto Presented=bNotice ? EKioskPopup::None : Session->Popup;
+    if (!bShuttingDown && Presented==EKioskPopup::Payment && LastPresentedPopup!=EKioskPopup::Payment)
+        PlayFeedback(EKioskSound::PaymentShowUp);
+    LastPresentedPopup=Presented;
 }
 void UTransitKioskWidget::HandleAction(FName Action)
 {
-    if (!Session || bShuttingDown)
-        return;
+    if (!Session || bShuttingDown || Session->Popup == EKioskPopup::TopUpCancelled) return;
+    PlayFeedback(EKioskSound::Click);
     if (Session->HasPendingCollection())
     {
+        PlayFeedback(EKioskSound::Reject);
         ShowCollectionWarning();
         return;
     }
-    if (Action == TEXT("Exit"))
+    if (Action==TEXT("Exit"))
     {
-        if (auto *PC = Cast<ATransitPlayerController>(GetOwningPlayer()))
-            PC->CloseKiosk();
+        if (auto* PC=Cast<ATransitPlayerController>(GetOwningPlayer())) PC->CloseKiosk();
         return;
     }
-    if (Action == TEXT("Help"))
+    const auto Before=Session->Popup;
+    bool bAccepted=false;
+    if (Action==TEXT("Help"))
     {
-        if (Session->ShowAssistance() && PhysicalKiosk.IsValid()) PhysicalKiosk->PressHelpButton();
+        bAccepted=Session->ShowAssistance();
+        if (bAccepted)
+        {
+            if (PhysicalKiosk.IsValid()) PhysicalKiosk->PressHelpButton();
+            PlayFeedback(EKioskSound::Help);
+        }
     }
-    else if (Action == TEXT("StaffClose"))
-        Session->DismissAssistance();
-    else if (Action == TEXT("Back"))
-        Session->Back();
-    else if (Action == TEXT("Home"))
-        Session->CompleteAndReset();
-    else if (Session->Popup == EKioskPopup::Assistance)
-        return;
-    else if (Action == TEXT("Start"))
-        Session->Start();
-    else if (Action == TEXT("English") || Action == TEXT("Chinese") || Action == TEXT("Malay") ||
-             Action == TEXT("Tamil"))
-        Session->SelectLanguage(Action.ToString());
-    else if (Action == TEXT("Purchase"))
-        Session->BeginPurchase();
-    else if (Action == TEXT("Destination"))
-        Session->BeginDestination();
-    else if (Action == TEXT("TopUp"))
-        Session->BeginTopUp();
-    else if (Action == TEXT("ReadCard"))
-        Session->ReadCard();
-    else if (Action == TEXT("DayPass"))
-        Session->SelectProduct(EKioskProduct::DayPass);
-    else if (Action == TEXT("Confirm"))
-        Session->ConfirmDestination();
-    else if (Action == TEXT("OneWay"))
-        Session->SelectProduct(EKioskProduct::OneWay);
-    else if (Action == TEXT("RoundTrip"))
-        Session->SelectProduct(EKioskProduct::RoundTrip);
-    else if (Action==TEXT("QuantityMinus")) Session->SetTicketQuantity(Session->TicketQuantity-1);
-    else if (Action==TEXT("QuantityPlus")) Session->SetTicketQuantity(Session->TicketQuantity+1);
-    else if (Action==TEXT("QuantityConfirm")) Session->ConfirmTicketQuantity();
+    else if (Action==TEXT("StaffClose")) bAccepted=Session->DismissAssistance();
+    else if (Action==TEXT("Back")) bAccepted=Session->Back();
+    else if (Action==TEXT("Home")) bAccepted=Session->CompleteAndReset();
+    else if (Session->Popup==EKioskPopup::Assistance) bAccepted=false;
+    else if (Action==TEXT("Start")) bAccepted=Session->Start();
+    else if (Action==TEXT("English") || Action==TEXT("Chinese") || Action==TEXT("Malay") || Action==TEXT("Tamil"))
+        bAccepted=Session->SelectLanguage(Action.ToString());
+    else if (Action==TEXT("Purchase")) bAccepted=Session->BeginPurchase();
+    else if (Action==TEXT("Destination")) bAccepted=Session->BeginDestination();
+    else if (Action==TEXT("TopUp")) bAccepted=Session->BeginTopUp();
+    else if (Action==TEXT("ReadCard")) bAccepted=Session->ReadCard();
+    else if (Action==TEXT("DayPass")) bAccepted=Session->SelectProduct(EKioskProduct::DayPass);
+    else if (Action==TEXT("Confirm")) bAccepted=Session->ConfirmDestination();
+    else if (Action==TEXT("OneWay")) bAccepted=Session->SelectProduct(EKioskProduct::OneWay);
+    else if (Action==TEXT("RoundTrip")) bAccepted=Session->SelectProduct(EKioskProduct::RoundTrip);
+    else if (Action==TEXT("QuantityMinus")) bAccepted=Session->SetTicketQuantity(Session->TicketQuantity-1);
+    else if (Action==TEXT("QuantityPlus")) bAccepted=Session->SetTicketQuantity(Session->TicketQuantity+1);
+    else if (Action==TEXT("QuantityConfirm")) bAccepted=Session->ConfirmTicketQuantity();
     else if (Action.ToString().StartsWith(TEXT("Station")))
-        Session->SelectDestination(FCString::Atoi(*Action.ToString().RightChop(7)));
+        bAccepted=Session->SelectDestination(FCString::Atoi(*Action.ToString().RightChop(7)));
     else if (Action.ToString().StartsWith(TEXT("Amount")))
     {
-        const int32 I = FCString::Atoi(*Action.ToString().RightChop(6));
-        if (Session->Config.TopUpAmountsCents.IsValidIndex(I))
-            Session->SelectTopUp(Session->Config.TopUpAmountsCents[I]);
+        const int32 I=FCString::Atoi(*Action.ToString().RightChop(6));
+        if (Session->Config.TopUpAmountsCents.IsValidIndex(I)) bAccepted=Session->SelectTopUp(Session->Config.TopUpAmountsCents[I]);
     }
-    else if (Action == TEXT("Pay") && Session->StartPayment())
-        GetWorld()->GetTimerManager().SetTimer(PaymentTimer, this, &UTransitKioskWidget::FinishPayment,
-                                               Session->Config.ProcessingSeconds, false);
+    else if (Action==TEXT("Pay"))
+    {
+        bAccepted=Session->StartPayment();
+        if (bAccepted) GetWorld()->GetTimerManager().SetTimer(PaymentTimer,this,&UTransitKioskWidget::FinishPayment,Session->Config.ProcessingSeconds,false);
+    }
+    const bool bCancelled=Action==TEXT("Back") && (Before==EKioskPopup::Trip || Before==EKioskPopup::Quantity || Before==EKioskPopup::Payment || Session->HasPendingCollection());
+    if (!bAccepted || bCancelled) PlayFeedback(EKioskSound::Reject);
+    else if (Action==TEXT("Confirm") || Action==TEXT("QuantityConfirm") || Action==TEXT("StaffClose") || Action==TEXT("ReadCard"))
+        PlayFeedback(EKioskSound::Accept);
     Refresh();
     if (!bWorldSpace) SetKeyboardFocus();
 }
@@ -298,6 +316,7 @@ void UTransitKioskWidget::RequireCardCollection()
     if (!Session || !Session->bCardPresent) return;
     if (GetWorld()) GetWorld()->GetTimerManager().ClearTimer(PaymentTimer);
     Session->RequestCardCollection();
+    PlayFeedback(EKioskSound::Reject);
     Refresh();
 }
 
@@ -309,6 +328,23 @@ void UTransitKioskWidget::ResumeKiosk()
 
 void UTransitKioskWidget::PhysicalItemCollected()
 {
+    if (Session && Session->Popup == EKioskPopup::TopUpCancelled)
+    {
+        if (auto* World = GetWorld())
+        {
+            auto& Timers = World->GetTimerManager();
+            Timers.ClearTimer(PaymentTimer);
+            Timers.SetTimer(TopUpCancellationTimer, this, &UTransitKioskWidget::FinishTopUpCancellation, 5.f, false);
+        }
+        PlayFeedback(EKioskSound::Reject);
+    }
+    Refresh();
+}
+
+void UTransitKioskWidget::FinishTopUpCancellation()
+{
+    if (bShuttingDown || !Session || Session->Popup != EKioskPopup::TopUpCancelled) return;
+    Session->Reset();
     Refresh();
 }
 
@@ -331,6 +367,7 @@ void UTransitKioskWidget::FinishPayment()
         return;
     if (auto *PC = Cast<ATransitPlayerController>(GetOwningPlayer()))
         PC->StoreDemoProgress(Session->CardBalanceCents);
+    PlayFeedback(EKioskSound::Accept);
     Refresh();
 }
 void UTransitKioskWidget::PlaceProjectedControl(FName Name, const FVector2D &Position, const FVector2D &Size,
@@ -376,8 +413,11 @@ FReply UTransitKioskWidget::NativeOnPreviewKeyDown(const FGeometry &Geometry, co
 void UTransitKioskWidget::ShutdownKiosk()
 {
     bShuttingDown = true;
-    if (GetWorld())
-        GetWorld()->GetTimerManager().ClearTimer(PaymentTimer);
+    if (auto* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(PaymentTimer);
+        World->GetTimerManager().ClearTimer(TopUpCancellationTimer);
+    }
     if (Session && Session->bCardPresent) Session->RequestCardCollection();
 }
 void UTransitKioskWidget::NativeDestruct()

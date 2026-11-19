@@ -6,6 +6,30 @@
     "Tamil"
   ],
   "strings": {
+    "TopUpCancelledTitle": [
+      "Top-up cancelled",
+      "充值已取消",
+      "Tambah nilai dibatalkan",
+      "மதிப்பு சேர்த்தல் ரத்துசெய்யப்பட்டது"
+    ],
+    "TopUpCancelledMessage": [
+      "Card returned. No charge was made.",
+      "已取回交通卡，未扣款。",
+      "Kad telah diambil semula. Tiada caj dikenakan.",
+      "அட்டையைத் திரும்ப எடுத்துவிட்டீர்கள். கட்டணம் வசூலிக்கப்படவில்லை."
+    ],
+    "TopUpCancelledReturn": [
+      "Returning to Welcome in 5 seconds.",
+      "5 秒后返回欢迎页面。",
+      "Kembali ke skrin alu-aluan dalam 5 saat.",
+      "5 வினாடிகளில் வரவேற்புத் திரைக்குத் திரும்பும்."
+    ],
+    "CancelTopUpHint": [
+      "Click your card to take it back and cancel the top-up.",
+      "点击您的交通卡取回并取消充值。",
+      "Klik kad anda untuk mengambilnya semula dan membatalkan tambah nilai.",
+      "அட்டையைத் திரும்ப எடுத்து மதிப்பு சேர்ப்பதை ரத்துசெய்ய அதைக் கிளிக் செய்யவும்."
+    ],
     "Back": [
       "<<Back",
       "<<返回",
@@ -361,6 +385,10 @@
     "UnitFare",
     "Continue",
     "CollectStackTitle",
-    "CollectStackInstruction"
+    "CollectStackInstruction",
+    "TopUpCancelledTitle",
+    "TopUpCancelledMessage",
+    "TopUpCancelledReturn",
+    "CancelTopUpHint"
   ]
 }
