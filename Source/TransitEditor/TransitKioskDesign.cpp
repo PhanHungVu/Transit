@@ -48,7 +48,7 @@ bool SaveDesignObject(UObject *Object)
                                                                           FPackageName::GetAssetPackageExtension()),
                                  Args);
 }
-UTexture2D *ImportArt(const FString &Name)
+UTexture2D *ImportArt(const FString &Name, TextureGroup Group = TEXTUREGROUP_UI)
 {
     const FString Path = TEXT("/Game/Kiosk/Design/T_") + Name;
     if (auto *Existing = LoadObject<UTexture2D>(nullptr, *Path, nullptr, LOAD_NoWarn | LOAD_Quiet))
@@ -69,9 +69,12 @@ UTexture2D *ImportArt(const FString &Name)
         FPaths::ProjectContentDir() / TEXT("Kiosk/DesignSource") / (Name + TEXT(".png")), nullptr, GWarn, Cancelled));
     if (!Texture)
         return nullptr;
-    Texture->LODGroup = TEXTUREGROUP_UI;
-    Texture->CompressionSettings = TC_EditorIcon;
-    Texture->MipGenSettings = TMGS_NoMipmaps;
+    const bool bUI = Group == TEXTUREGROUP_UI;
+    Texture->LODGroup = Group;
+    Texture->CompressionSettings = bUI ? TC_EditorIcon : TC_Default;
+    Texture->MipGenSettings = bUI ? TMGS_NoMipmaps : TMGS_FromTextureGroup;
+    if (!bUI)
+        Texture->AddressX = Texture->AddressY = TA_Clamp;
     Texture->SRGB = true;
     Texture->NeverStream = true;
     Texture->PostEditChange();
@@ -520,7 +523,11 @@ bool BuildDesignWidget(UWidgetBlueprint *BP, UFont *Font, TMap<FString, UTexture
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionEyeAdaptationInverse.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionAdd.h"
+#include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionTransformPosition.h"
+#include "Materials/MaterialExpressionWorldPosition.h"
 #include "StaticMeshAttributes.h"
 #include "MeshDescription.h"
 #include "EngineUtils.h"
@@ -549,6 +556,61 @@ UMaterial *SolidHardwareMaterial(const FString &Name, FColor Color, float Metall
         else
             Material->GetEditorOnlyData()->Roughness.Connect(0, Value);
     }
+    Material->PostEditChange();
+    FAssetRegistryModule::AssetCreated(Material);
+    return SaveDesignObject(Material) ? Material : nullptr;
+}
+
+UMaterial* TransitCardMaterial()
+{
+    const TCHAR* Path = TEXT("/Game/Kiosk/Design/M_TransitCardFace");
+    if (auto* Existing = LoadObject<UMaterial>(nullptr, Path, nullptr, LOAD_NoWarn | LOAD_Quiet))
+        return Existing;
+    auto* Art = ImportArt(TEXT("TransitCardFace"), TEXTUREGROUP_World);
+    if (!Art) return nullptr;
+
+    auto* Material = NewObject<UMaterial>(CreatePackage(Path), TEXT("M_TransitCardFace"), RF_Public | RF_Standalone);
+    Material->SetShadingModel(MSM_DefaultLit);
+    auto* World = NewObject<UMaterialExpressionWorldPosition>(Material);
+    auto* Local = NewObject<UMaterialExpressionTransformPosition>(Material);
+    Local->TransformSourceType = TRANSFORMPOSSOURCE_World;
+    Local->TransformType = TRANSFORMPOSSOURCE_Local;
+    Local->Input.Connect(0, World);
+
+    // The card uses a scaled 100 cm cube. Its visible face spans local Y and Z.
+    auto* FaceAxes = NewObject<UMaterialExpressionComponentMask>(Material);
+    FaceAxes->R = false;
+    FaceAxes->G = FaceAxes->B = true;
+    FaceAxes->A = false;
+    FaceAxes->Input.Connect(0, Local);
+    auto* Scale = NewObject<UMaterialExpressionMultiply>(Material);
+    Scale->A.Connect(0, FaceAxes);
+    Scale->ConstB = -.01f;
+    auto* UV = NewObject<UMaterialExpressionAdd>(Material);
+    UV->A.Connect(0, Scale);
+    UV->ConstB = .5f;
+    auto* Face = NewObject<UMaterialExpressionTextureSample>(Material);
+    Face->Texture = Art;
+    Face->SamplerType = SAMPLERTYPE_Color;
+    Face->Coordinates.Connect(0, UV);
+
+    auto* ShadowFill = NewObject<UMaterialExpressionMultiply>(Material);
+    ShadowFill->A.Connect(0, Face);
+    ShadowFill->ConstB = .25f;
+    ShadowFill->Desc = TEXT("Keep the printed design readable in the holder's shadow");
+
+    int32 X = -1580;
+    for (UMaterialExpression* Node : TArray<UMaterialExpression*>{World, Local, FaceAxes, Scale, UV, Face, ShadowFill})
+    {
+        Node->MaterialExpressionEditorX = X;
+        X += 205;
+        Material->GetExpressionCollection().AddExpression(Node);
+    }
+    auto* Output = Material->GetEditorOnlyData();
+    Output->BaseColor.Connect(0, Face);
+    Output->Roughness.Constant = .42f;
+    Output->Roughness.UseConstant = true;
+    Output->EmissiveColor.Connect(0, ShadowFill);
     Material->PostEditChange();
     FAssetRegistryModule::AssetCreated(Material);
     return SaveDesignObject(Material) ? Material : nullptr;
@@ -616,7 +678,7 @@ bool RefineHardware(UBlueprint *BP)
     auto *RedKey = SolidHardwareMaterial(TEXT("HardwareCancel"), FColor(218, 49, 49));
     auto *Cabinet = SolidHardwareMaterial(TEXT("AccessibleCabinet"), FColor(170, 184, 195));
     auto *Panel = SolidHardwareMaterial(TEXT("AccessiblePanel"), FColor(42, 62, 80));
-    auto *Card = SolidHardwareMaterial(TEXT("DemoTransitCard"), FColor(47, 188, 218));
+    auto *Card = TransitCardMaterial();
     auto *Paper = SolidHardwareMaterial(TEXT("DemoTicket"), FColor(242, 245, 236));
     auto *Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
     if (!Cube || !Grey || !Frame || !Screen || !Payment || !Help || !Charcoal || !Metal || !Reader || !GreenKey || !RedKey ||
@@ -808,6 +870,36 @@ bool RefineHardware(UBlueprint *BP)
     return SaveDesignObject(BP);
 }
 } // namespace
+
+bool UpdateKioskCardAppearance()
+{
+    auto* BP = LoadObject<UBlueprint>(nullptr, TEXT("/Game/Kiosk/Blueprint/BP_TransitKiosk"));
+    if (!BP || !BP->SimpleConstructionScript) return false;
+    auto* Node = BP->SimpleConstructionScript->FindSCSNode(TEXT("TransitCardProp"));
+    auto* Card = Node ? Cast<UStaticMeshComponent>(Node->ComponentTemplate) : nullptr;
+    if (!Card) return false;
+
+    auto* Material = TransitCardMaterial();
+    if (!Material) return false;
+    if (Card->GetMaterial(0) != Material)
+    {
+        const FString Filename = FPackageName::LongPackageNameToFilename(BP->GetOutermost()->GetName(),
+                                                                        FPackageName::GetAssetPackageExtension());
+        const FString Backup = FPaths::ProjectSavedDir() / TEXT("KioskCardAppearanceBackup") /
+                               FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+        IFileManager::Get().MakeDirectory(*Backup, true);
+        if (IFileManager::Get().Copy(*(Backup / FPaths::GetCleanFilename(Filename)), *Filename) != COPY_OK) return false;
+
+        BP->Modify();
+        Card->Modify();
+        Card->SetMaterial(0, Material);
+        FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+        FKismetEditorUtilities::CompileBlueprint(BP);
+        if (BP->Status == BS_Error || !SaveDesignObject(BP)) return false;
+    }
+    UE_LOG(LogTemp, Display, TEXT("KIOSK_CARD_APPEARANCE TransitCardProp uses %s"), *Material->GetPathName());
+    return true;
+}
 
 bool UpdateKioskInteractionAssets()
 {

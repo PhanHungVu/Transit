@@ -82,7 +82,7 @@ The actual cooked Shipping game was launched offscreen with its default graphics
 
 ## Use and remaining checks
 
-Open the existing Demo map in UE 5.8.2, Play, approach the front and press E. Move the mouse to look/aim, left click the touchscreen or physical controls, and press Escape to exit. C/P/F1 remain optional card/payment/Help shortcuts. No manual UMG creation, Blueprint reparenting, actor replacement or input assignment is needed.
+Open the existing Demo map in UE 5.8.2 and Play. You start facing the kiosk. While walking, press C to toggle between the normal view and the child preset at 115 cm eye level. Approach the kiosk and press E to use it at the selected height. Move the mouse to aim, left-click the touchscreen or physical controls, and press Escape to exit. During a kiosk session, C places the transit card, P pays and F1 requests Help.
 
 For repeat verification use `Scripts/kiosk.ps1 -Mode Gameplay`; for a Shipping package use `-Mode Package`. If this machine's signed-script policy blocks direct execution, use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Scripts\kiosk.ps1 -Mode Package`; this changes policy only for that process. Package mode uses the Demo map and saves to `Saved/Packaged/POVVerified`, leaving older archive folders available. No global editor/cache setting is changed. `-Mode Hardware` regenerates the scripted physical design, and full Migrate also regenerates the touchscreen; neither is needed to play.
 

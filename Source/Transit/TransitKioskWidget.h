@@ -78,3 +78,15 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextBlock> Reticle;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> HintText;
 };
+
+UCLASS()
+class TRANSIT_API UTransitHeightPromptWidget : public UUserWidget
+{
+    GENERATED_BODY()
+public:
+    void UpdatePrompt(bool bChildViewEnabled);
+protected:
+    virtual void NativeOnInitialized() override;
+private:
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> PromptText;
+};

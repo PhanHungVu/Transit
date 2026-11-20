@@ -108,6 +108,8 @@ int32 UTransitKioskCommandlet::Main(const FString &Params)
     }
     if (FParse::Param(*Params,TEXT("UpdateInteraction")))
         return UpdateKioskInteractionAssets() ? 0 : 1;
+    if (FParse::Param(*Params, TEXT("UpdateCardAppearance")))
+        return UpdateKioskCardAppearance() ? 0 : 1;
     if (FParse::Param(*Params, TEXT("InspectHardware")))
     {
         FString Source;

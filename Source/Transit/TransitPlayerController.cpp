@@ -54,6 +54,11 @@ void ATransitPlayerController::BeginPlay()
     StartTransitKioskSmokeTest(this);
 #endif
 
+	if (IsLocalPlayerController())
+	{
+		HeightPrompt = CreateWidget<UTransitHeightPromptWidget>(this);
+		if (HeightPrompt) HeightPrompt->AddToPlayerScreen(5);
+	}
 	
 	// only spawn touch controls on local player controllers
 	if (IsLocalPlayerController() && ShouldUseTouchControls())
@@ -120,7 +125,13 @@ void ATransitPlayerController::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     if (!IsLocalPlayerController()) return;
-    if (KioskWidget && (!ActiveKiosk.IsValid() || !GetPawn())) CloseKioskInternal(true);
+    APawn* PlayerPawn = GetPawn();
+    if (!bStartupFacingSet && PlayerPawn)
+    {
+        bStartupFacingSet = true;
+        FaceNearestKiosk(*PlayerPawn);
+    }
+    if (KioskWidget && (!ActiveKiosk.IsValid() || !PlayerPawn)) CloseKioskInternal(true);
     if (KioskWidget)
     {
         UpdateKioskCamera();
@@ -132,6 +143,30 @@ void ATransitPlayerController::Tick(float DeltaSeconds)
         PromptUpdateSeconds = 0.f;
         UpdateKioskPrompt();
     }
+}
+
+void ATransitPlayerController::FaceNearestKiosk(APawn& PlayerPawn)
+{
+    const FVector Position = PlayerPawn.GetActorLocation();
+    const ATransitKioskActor* NearestKiosk = nullptr;
+    double BestDistance = TNumericLimits<double>::Max();
+    for (TActorIterator<ATransitKioskActor> It(GetWorld()); It; ++It)
+    {
+        const double Distance = FVector::DistSquared(Position, It->GetActorLocation());
+        if (Distance < BestDistance)
+        {
+            NearestKiosk = *It;
+            BestDistance = Distance;
+        }
+    }
+    if (!NearestKiosk) return;
+
+    const FVector Direction = NearestKiosk->GetActorLocation() - Position;
+    if (Direction.SizeSquared2D() <= UE_SMALL_NUMBER) return;
+
+    const FRotator Facing(0.0, Direction.Rotation().Yaw, 0.0);
+    PlayerPawn.SetActorRotation(Facing);
+    SetControlRotation(Facing);
 }
 
 void ATransitPlayerController::UpdateKioskPrompt()
@@ -165,6 +200,7 @@ void ATransitPlayerController::OpenKiosk()
     if (!KioskWidgetClass) { UE_LOG(LogTransit, Error, TEXT("KioskUI must derive from TransitKioskWidget. Run the TransitKiosk editor commandlet with -Apply.")); return; }
     KioskWidget = NearbyKiosk->PrepareTouchscreen(this);
     if (!KioskWidget) return;
+    if (HeightPrompt) HeightPrompt->SetVisibility(ESlateVisibility::Collapsed);
     ActiveKiosk = NearbyKiosk;
     if (DemoCardBalanceCents == INDEX_NONE) DemoCardBalanceCents = ActiveKiosk->DemoConfig.InitialCardBalanceCents;
     if (KioskWidget->GetSession() && (KioskWidget->GetSession()->HasPendingCollection() || KioskWidget->GetSession()->bCardPresent))
@@ -172,9 +208,10 @@ void ATransitPlayerController::OpenKiosk()
     else
         KioskWidget->InitializeKiosk(ActiveKiosk->DemoConfig, DemoCardBalanceCents);
     KioskWidget->Refresh();
-    FVector Eye;
-    FRotator OldView;
-    GetPlayerViewPoint(Eye,OldView);
+    FMinimalViewInfo StandingView;
+    GetPawn()->CalcCamera(0.f, StandingView);
+    KioskEyeHeight = bChildViewEnabled ? ChildEyeHeightCm : FMath::Max(60.f,
+        static_cast<float>(ActiveKiosk->GetActorTransform().InverseTransformPosition(StandingView.Location).Z));
     const auto NormalView = ReturningCamera && PreviousViewTarget.IsValid() ? PreviousViewTarget : TWeakObjectPtr<AActor>(GetViewTarget());
     FinishCameraReturn();
     PreviousViewTarget = NormalView;
@@ -184,7 +221,6 @@ void ATransitPlayerController::OpenKiosk()
         bSavedPawnHidden = KioskUserPawn->IsHidden();
         KioskUserPawn->SetActorHiddenInGame(true);
     }
-    KioskEyeHeight = FMath::Max(60.f, static_cast<float>(ActiveKiosk->GetActorTransform().InverseTransformPosition(Eye).Z));
     FVector CameraPosition;
     FRotator CameraRotation;
     ActiveKiosk->GetInteractionView(KioskEyeHeight,CameraPosition,CameraRotation);
@@ -245,6 +281,7 @@ void ATransitPlayerController::CloseKioskInternal(bool bForce)
     if (ActiveKiosk.IsValid()) ActiveKiosk->ShowIdleScreen(DemoCardBalanceCents);
     const float BlendSeconds = ActiveKiosk.IsValid() ? ActiveKiosk->CameraBlendSeconds : .33f;
     KioskWidget = nullptr; ActiveKiosk.Reset();
+    if (HeightPrompt) HeightPrompt->SetVisibility(ESlateVisibility::HitTestInvisible);
     AActor* Target = PreviousViewTarget.IsValid() ? PreviousViewTarget.Get() : GetPawn();
     if (Target) SetViewTargetWithBlend(Target,BlendSeconds,VTBlend_Cubic,0,true);
     if (KioskUserPawn.IsValid()) KioskUserPawn->SetActorHiddenInGame(bSavedPawnHidden);
@@ -261,6 +298,7 @@ void ATransitPlayerController::CloseKioskInternal(bool bForce)
 
 void ATransitPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (HeightPrompt) { HeightPrompt->RemoveFromParent(); HeightPrompt = nullptr; }
     CloseKioskInternal(true);
     FinishCameraReturn();
     if (InteractionPrompt) { InteractionPrompt->RemoveFromParent(); InteractionPrompt = nullptr; }
@@ -318,6 +356,7 @@ void ATransitPlayerController::UpdateKioskInteraction()
             {
                 HardwareAction = Session->bCardAwaitingCollection || bCanTakeUnpaidCard ? TEXT("CollectCard") : TEXT("ReadCard");
             }
+            else if (Hit.GetComponent()->ComponentHasTag(TEXT("CancelPayment"))) HardwareAction = TEXT("CancelPayment");
             else if (Name.StartsWith(TEXT("Payment"))) HardwareAction = TEXT("Pay");
             else if (Name.StartsWith(TEXT("Help"))) HardwareAction = TEXT("Help");
             else if (Name.StartsWith(TEXT("TransitCardReader")) || Name.StartsWith(TEXT("CardReader")) || Name.StartsWith(TEXT("CardHolder"))) HardwareAction = Session->bCardAwaitingCollection ? TEXT("CollectCard") : TEXT("ReadCard");
@@ -332,6 +371,7 @@ void ATransitPlayerController::UpdateKioskInteraction()
             bCollecting ? false :
             HardwareAction == TEXT("Help") ? Session->Popup != EKioskPopup::Assistance :
             bPointerOnScreen ? KioskPointer->IsOverInteractableWidget() :
+            HardwareAction == TEXT("CancelPayment") ? Session->Popup == EKioskPopup::Payment :
             HardwareAction == TEXT("Pay") ? Session->Popup == EKioskPopup::Payment && Session->CanPay() :
             HardwareAction == TEXT("ReadCard") && Session->Page == EKioskPage::CardPlacement && Session->Popup == EKioskPopup::None;
         FString Hint = TEXT("Mouse: look   |   Click: interact   |   Esc: exit   |   DEMONSTRATION ONLY");
@@ -341,6 +381,7 @@ void ATransitPlayerController::UpdateKioskInteraction()
         else if (bReady && !HardwareAction.IsNone())
         {
             const FString ActionHint = HardwareAction == TEXT("CollectTicket") ? TEXT("collect ticket") :
+                HardwareAction == TEXT("CancelPayment") ? TEXT("cancel payment") :
                 HardwareAction == TEXT("Pay") ? TEXT("tap payment card") :
                 HardwareAction == TEXT("ReadCard") ? TEXT("place transit card") : TEXT("request staff assistance");
             Hint = TEXT("Click: ")+ActionHint+TEXT("   |   Esc: exit   |   DEMONSTRATION ONLY");
@@ -351,7 +392,19 @@ void ATransitPlayerController::UpdateKioskInteraction()
 
 bool ATransitPlayerController::InputKey(const FInputKeyEventArgs& Args)
 {
-    if (!KioskWidget) return Super::InputKey(Args);
+    if (!KioskWidget)
+    {
+        if (Args.Key == EKeys::C && IsLocalPlayerController())
+        {
+            if (Args.Event == IE_Pressed)
+            {
+                bChildViewEnabled = !bChildViewEnabled;
+                if (HeightPrompt) HeightPrompt->UpdatePrompt(bChildViewEnabled);
+            }
+            return true;
+        }
+        return Super::InputKey(Args);
+    }
     if (Args.Key == EKeys::MouseX || Args.Key == EKeys::MouseY)
     {
         if (Args.Key == EKeys::MouseX) KioskYaw = FMath::Clamp(KioskYaw+static_cast<float>(Args.AmountDepressed)*KioskLookSensitivity,-45.f,45.f);

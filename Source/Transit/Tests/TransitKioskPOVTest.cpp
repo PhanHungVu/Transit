@@ -58,6 +58,39 @@ struct FTransitKioskPOVCheck
         Args.Key = Value; Args.Event = Event; Args.AmountDepressed = Amount;
         Player->InputKey(Args);
     }
+    void PressChildViewKey()
+    {
+        Add([this]
+        {
+            Key(EKeys::C, IE_Pressed);
+            Key(EKeys::C, IE_Repeat);
+            Key(EKeys::C, IE_Released, 0);
+        });
+    }
+    bool IsWalkingAtChildHeight() const
+    {
+        const APawn* Pawn = Player->GetPawn();
+        if (!Pawn || Player->IsKioskOpen() || Player->GetViewTarget() != Pawn) return false;
+        FVector Eye;
+        FRotator Facing;
+        Player->GetPlayerViewPoint(Eye, Facing);
+        FHitResult Floor;
+        const FVector Position = Pawn->GetActorLocation();
+        FCollisionQueryParams Query(SCENE_QUERY_STAT(ChildViewFloor), false, Pawn);
+        return Player->GetWorld()->LineTraceSingleByChannel(Floor, Position, Position - FVector(0, 0, 250), ECC_Visibility, Query) &&
+               FMath::IsNearlyEqual(Eye.Z - Floor.ImpactPoint.Z, 115., .5);
+    }
+    double KioskCameraHeight() const
+    {
+        return Kiosk->GetActorTransform().InverseTransformPosition(Player->KioskCamera->GetActorLocation()).Z;
+    }
+    bool HeightPromptShows(const TCHAR* ExpectedText) const
+    {
+        const UUserWidget* Prompt = Player->HeightPrompt;
+        if (!Prompt || !Prompt->IsInViewport() || Prompt->GetVisibility() != ESlateVisibility::HitTestInvisible) return false;
+        const auto* Text = Cast<UTextBlock>(Prompt->GetWidgetFromName(TEXT("HeightPromptText")));
+        return Text && Text->GetText().ToString() == ExpectedText;
+    }
     void Aim(const FVector& Target)
     {
         auto* Camera = Player->KioskCamera.Get();
@@ -164,6 +197,10 @@ struct FTransitKioskPOVCheck
         },.06f);
         Add([this]{ Key(EKeys::E,IE_Released,0); },.5f);
         Assert(TEXT("E opens the existing kiosk"),[this]{return Player->IsKioskOpen();});
+        Assert(TEXT("Height shortcut panel is hidden during kiosk use"), [this]
+        {
+            return Player->HeightPrompt && Player->HeightPrompt->GetVisibility() == ESlateVisibility::Collapsed;
+        });
         Assert(TEXT("Kiosk startup sound was requested"),[this]{return Kiosk->GetSoundEventCount(EKioskSound::Start)>0;});
     }
     void Exit()
@@ -172,6 +209,11 @@ struct FTransitKioskPOVCheck
         Assert(TEXT("Escape restores movement, look, cursor and camera"),[this]
         { return !Player->IsKioskOpen() && !Player->IsMoveInputIgnored() && !Player->IsLookInputIgnored() &&
                  Player->bShowMouseCursor == SavedCursor && Player->GetViewTarget() == Player->GetPawn() && !Player->GetPawn()->IsHidden(); });
+        Assert(TEXT("Height shortcut panel returns after exit"), [this]
+        {
+            return HeightPromptShows(Player->IsChildViewEnabled() ? TEXT("Press C to return to normal height") :
+                                                                  TEXT("Press C for child height (115 cm)"));
+        });
     }
     void StartLanguage(FName Language)
     {
@@ -184,6 +226,27 @@ struct FTransitKioskPOVCheck
         Assert(TEXT("Terminal starts existing payment simulation"),[this]{return Session() && Session()->Popup==EKioskPopup::Processing;});
         Wait(2.4f);
         Assert(TEXT("World timer confirms payment"),[this]{return Session() && Session()->Popup==EKioskPopup::Success;});
+    }
+    void CancelPaymentWithKey(EKioskPopup ExpectedPopup)
+    {
+        Add([this] { Aim(HardwarePoint(TEXT("PaymentKey_3_0"))); });
+        Add([this, ExpectedPopup]
+        {
+            Player->UpdateKioskInteraction();
+            Check(Player->HardwareAction == TEXT("CancelPayment"), TEXT("Physical red X ray targets payment cancellation"));
+            const int32 Rejects = Kiosk->GetSoundEventCount(EKioskSound::Reject);
+            const int32 Balance = Session()->CardBalanceCents;
+            const bool bHadCard = Session()->bCardPresent;
+            Key(EKeys::LeftMouseButton, IE_Pressed);
+            Check(Session()->Popup == ExpectedPopup && !Kiosk->IsPaymentScreenLit(),
+                  TEXT("Red X closes pending payment and turns off reader light"));
+            Check(Session()->CardBalanceCents == Balance && Session()->ReceiptId.IsEmpty() &&
+                  Session()->bCardPresent == bHadCard && !Session()->HasPendingCollection(),
+                  TEXT("Red X cancels without charging or changing physical items"));
+            Check(Kiosk->GetSoundEventCount(EKioskSound::Reject) == Rejects + 1,
+                  TEXT("Red X plays one Reject cue"));
+        }, .06f);
+        Add([this] { Key(EKeys::LeftMouseButton, IE_Released, 0); });
     }
     void CancelTopUpByPickingUpCard(const FString& Stage, bool bTakeScreenshot = false)
     {
@@ -251,11 +314,51 @@ struct FTransitKioskPOVCheck
             for (TActorIterator<ATransitKioskActor> It(PC->GetWorld()); It; ++It) { Kiosk=*It; break; }
             Check(Kiosk.IsValid() && PC->GetPawn(),TEXT("Original kiosk and character exist"));
             if (!Kiosk.IsValid() || !PC->GetPawn()) { Index=Steps.Num(); return; }
+            FVector Eye;
+            FRotator View;
+            PC->GetPlayerViewPoint(Eye, View);
+            const FVector ToKiosk = (Kiosk->GetActorLocation() - PC->GetPawn()->GetActorLocation()).GetSafeNormal2D();
+            Check(FVector::DotProduct(View.Vector().GetSafeNormal2D(), ToKiosk) > .999 &&
+                  FVector::DotProduct(PC->GetPawn()->GetActorForwardVector().GetSafeNormal2D(), ToKiosk) > .999,
+                  TEXT("The spawned player and camera face the kiosk"));
+            Check(HeightPromptShows(TEXT("Press C for child height (115 cm)")), TEXT("Height shortcut panel is visible at startup"));
+        });
+        Picture(TEXT("KioskPOV_FacingAtStart.png"));
+        Add([this]
+        {
+            FRotator View = Player->GetControlRotation();
+            View.Yaw += 30.0;
+            Player->SetControlRotation(View);
+        });
+        Assert(TEXT("Player can look away after the initial turn"), [this]
+        {
+            const FVector ToKiosk = (Kiosk->GetActorLocation() - Player->GetPawn()->GetActorLocation()).GetSafeNormal2D();
+            return FVector::DotProduct(Player->GetControlRotation().Vector().GetSafeNormal2D(), ToKiosk) < .95;
+        });
+        Add([this]
+        {
+            auto* PC = Player.Get();
             SavedPawn = Kiosk->GetActorTransform().TransformPosition(FVector(180,0,100));
             PC->GetPawn()->SetActorLocation(SavedPawn,false,nullptr,ETeleportType::TeleportPhysics);
             PC->SetControlRotation((Kiosk->FindPart(TEXT("ScreenDisplay"))->GetComponentLocation()-SavedPawn).Rotation());
             if (GShaderCompilingManager) GShaderCompilingManager->FinishAllCompilation();
         },.7f);
+        PressChildViewKey();
+        Assert(TEXT("C sets walking view to 115 cm and ignores key repeats"), [this] { return IsWalkingAtChildHeight(); });
+        Assert(TEXT("Height prompt offers the return shortcut in child view"), [this]
+        {
+            return HeightPromptShows(TEXT("Press C to return to normal height"));
+        });
+        PressChildViewKey();
+        Assert(TEXT("C restores standing view while walking"), [this]
+        {
+            FMinimalViewInfo Standing;
+            Player->GetPawn()->CalcCamera(0.f, Standing);
+            FVector Eye;
+            FRotator Facing;
+            Player->GetPlayerViewPoint(Eye, Facing);
+            return Eye.Equals(Standing.Location, .5);
+        });
         Open();
         Assert(TEXT("True world-space screen and hidden desktop cursor"),[this]
         { return Player->GetKioskWidget() && !Player->GetKioskWidget()->IsInViewport() && !Player->bShowMouseCursor &&
@@ -282,6 +385,31 @@ struct FTransitKioskPOVCheck
                 TEXT("Payment unit fits inside continuous cabinet width"));
         });
         Picture(TEXT("KioskPOV_Standing.png"));
+        PressChildViewKey();
+        Assert(TEXT("C keeps standing height fixed inside the kiosk"), [this]
+        {
+            return !Player->IsChildViewEnabled() && FMath::IsNearlyEqual(KioskCameraHeight(), static_cast<double>(NaturalEye), .1);
+        });
+        Exit();
+        PressChildViewKey();
+        Open();
+        Assert(TEXT("The kiosk opens at the selected 115 cm eye level"), [this] { return FMath::IsNearlyEqual(KioskCameraHeight(), 115., .1); });
+        PressChildViewKey();
+        Assert(TEXT("C keeps child height fixed inside the kiosk"), [this]
+        {
+            return Player->IsChildViewEnabled() && FMath::IsNearlyEqual(KioskCameraHeight(), 115., .1);
+        });
+        Picture(TEXT("KioskPOV_Child115.png"));
+        Click(TEXT("BTN_Start"));
+        Assert(TEXT("Touchscreen works at the 115 cm eye level"), [this] { return Session()->Page == EKioskPage::Language; });
+        Exit();
+        Assert(TEXT("Child height survives leaving the kiosk"), [this] { return IsWalkingAtChildHeight(); });
+        PressChildViewKey();
+        Open();
+        Assert(TEXT("Returning to standing outside sets the next kiosk session height"), [this]
+        {
+            return !Player->IsChildViewEnabled() && FMath::IsNearlyEqual(KioskCameraHeight(), static_cast<double>(NaturalEye), .1);
+        });
         Add([this]{ Key(EKeys::MouseX,IE_Axis,10000); });
         Assert(TEXT("Free look clamps right at 45 degrees"),[this]{return FMath::IsNearlyEqual(Player->KioskYaw,45.f);});
         Add([this]{ Key(EKeys::MouseX,IE_Axis,-20000); });
@@ -328,6 +456,9 @@ struct FTransitKioskPOVCheck
             Check(Before>0 && Kiosk->GetSoundEventCount(EKioskSound::PaymentShowUp)==Before,TEXT("Payment popup sound fires on appearance, not Refresh"));
         });
         Assert(TEXT("Payment display and terminal outline light only when ready"),[this]{return Kiosk->IsPaymentScreenLit() && Kiosk->IsInteractionHighlighted(TEXT("PaymentReader")) && !Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader"));});
+        CancelPaymentWithKey(EKioskPopup::Quantity);
+        Assert(TEXT("Red X keeps the selected ticket quantity"), [this] { return Session()->TicketQuantity == 3; });
+        Click(TEXT("BTN_QuantityConfirm"));
         Add([this]{Aim(HardwarePoint(TEXT("PaymentReader")));});
         Picture(TEXT("KioskInteraction_PaymentReady.png"));
         PayAndWait();
@@ -369,7 +500,12 @@ struct FTransitKioskPOVCheck
         Assert(TEXT("Transit reader outlined when card placement is required"),[this]{return Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader")) && !Kiosk->IsPaymentScreenLit();});
         Add([this]{Aim(HardwarePoint(TEXT("TransitCardReader")));});
         Picture(TEXT("KioskInteraction_PlaceCard.png"));
-        Hardware(TEXT("TransitCardReader"));
+        Add([this] { Key(EKeys::C, IE_Pressed); Key(EKeys::C, IE_Released, 0); });
+        Assert(TEXT("C places the transit card in the kiosk while keeping the selected height"), [this]
+        {
+            return Session()->Page == EKioskPage::TopUp && !Player->IsChildViewEnabled() &&
+                   FMath::IsNearlyEqual(KioskCameraHeight(), static_cast<double>(NaturalEye), .1);
+        });
         Assert(TEXT("Card stays physically in holder throughout top-up selection"),[this]{return Session()->bCardPresent && !Session()->bCardAwaitingCollection && Kiosk->FindPart(TEXT("TransitCardProp"))->IsVisible() && !Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader"));});
         Click(TEXT("BTN_Back"));
         Assert(TEXT("Leaving amount selection immediately requires unpaid card pickup"),[this]{return Session()->bCardAwaitingCollection && Kiosk->IsInteractionHighlighted(TEXT("TransitCardReader")) && Session()->CardBalanceCents==340;});
@@ -385,10 +521,18 @@ struct FTransitKioskPOVCheck
         CancelTopUpByPickingUpCard(TEXT("After amount selection, before payment"));
         StartLanguage(TEXT("BTN_LanguageTamil")); Click(TEXT("BTN_TopUp")); Hardware(TEXT("TransitCardReader"));
         Click(TEXT("BTN_TopUp5"));
+        CancelPaymentWithKey(EKioskPopup::None);
+        Assert(TEXT("Red X returns to top-up amounts with the card still on the holder"), [this]
+        {
+            return Session()->Page == EKioskPage::TopUp && Session()->bCardPresent &&
+                   Kiosk->FindPart(TEXT("TransitCardProp"))->IsVisible();
+        });
+        Click(TEXT("BTN_TopUp5"));
         Assert(TEXT("Top-up payment terminal lights up"),[this]{return Kiosk->IsPaymentScreenLit();});
         Hardware(TEXT("PaymentReader"));
+        Hardware(TEXT("PaymentKey_3_0"));
         Hardware(TEXT("TransitCardProp"));
-        Assert(TEXT("Card click during payment processing keeps the card and the payment in progress"), [this]
+        Assert(TEXT("Red X and card clicks during processing keep the card and the payment in progress"), [this]
         {
             return Session()->Popup == EKioskPopup::Processing && Session()->bCardPresent &&
                    Kiosk->FindPart(TEXT("TransitCardProp"))->IsVisible();

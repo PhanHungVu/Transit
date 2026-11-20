@@ -3,6 +3,8 @@
 #include "TransitKioskActor.h"
 #include "TransitPlayerController.h"
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Components/WidgetSwitcher.h"
@@ -84,7 +86,7 @@ void UTransitKioskWidget::NativeConstruct()
                                            {TEXT("BTN_QuantityConfirm"), TEXT("QuantityConfirm")},
                                            {TEXT("BTN_QuantityCancel"), TEXT("Back")},
                                            {TEXT("BTN_TripCancel"), TEXT("Back")},
-                                           {TEXT("BTN_PaymentCancel"), TEXT("Back")},
+                                           {TEXT("BTN_PaymentCancel"), TEXT("CancelPayment")},
                                            {TEXT("BTN_SuccessHome"), TEXT("Home")},
                                            {TEXT("BTN_StaffClose"), TEXT("StaffClose")},
                                            {TEXT("BTN_HardwareHelp"), TEXT("Help")},
@@ -270,6 +272,7 @@ void UTransitKioskWidget::HandleAction(FName Action)
         }
     }
     else if (Action==TEXT("StaffClose")) bAccepted=Session->DismissAssistance();
+    else if (Action==TEXT("CancelPayment")) bAccepted=Before==EKioskPopup::Payment && Session->Back();
     else if (Action==TEXT("Back")) bAccepted=Session->Back();
     else if (Action==TEXT("Home")) bAccepted=Session->CompleteAndReset();
     else if (Session->Popup==EKioskPopup::Assistance) bAccepted=false;
@@ -299,7 +302,9 @@ void UTransitKioskWidget::HandleAction(FName Action)
         bAccepted=Session->StartPayment();
         if (bAccepted) GetWorld()->GetTimerManager().SetTimer(PaymentTimer,this,&UTransitKioskWidget::FinishPayment,Session->Config.ProcessingSeconds,false);
     }
-    const bool bCancelled=Action==TEXT("Back") && (Before==EKioskPopup::Trip || Before==EKioskPopup::Quantity || Before==EKioskPopup::Payment || Session->HasPendingCollection());
+    const bool bCancelled = Action == TEXT("CancelPayment") ||
+        (Action == TEXT("Back") && (Before == EKioskPopup::Trip || Before == EKioskPopup::Quantity ||
+         Before == EKioskPopup::Payment || Session->HasPendingCollection()));
     if (!bAccepted || bCancelled) PlayFeedback(EKioskSound::Reject);
     else if (Action==TEXT("Confirm") || Action==TEXT("QuantityConfirm") || Action==TEXT("StaffClose") || Action==TEXT("ReadCard"))
         PlayFeedback(EKioskSound::Accept);
@@ -467,4 +472,39 @@ void UTransitKioskAimWidget::SetAimHint(const FString& Hint, bool bReady)
 {
     if (Reticle) Reticle->SetColorAndOpacity(bReady ? FLinearColor(.2f,1.f,.5f) : FLinearColor::White);
     if (HintText) HintText->SetText(FText::FromString(Hint));
+}
+
+void UTransitHeightPromptWidget::NativeOnInitialized()
+{
+    Super::NativeOnInitialized();
+    SetIsFocusable(false);
+    SetVisibility(ESlateVisibility::HitTestInvisible);
+    if (!WidgetTree) WidgetTree = NewObject<UWidgetTree>(this);
+
+    auto* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
+    WidgetTree->RootWidget = Canvas;
+    auto* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HeightPromptPanel"));
+    Panel->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.018f, .032f, .06f, .94f), 8.f));
+    Panel->SetPadding(FMargin(16, 10));
+    PromptText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HeightPromptText"));
+    PromptText->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 18));
+    PromptText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+    Panel->AddChild(PromptText);
+
+    auto* PromptSlot = Canvas->AddChildToCanvas(Panel);
+    PromptSlot->SetAnchors(FAnchors(1.f, 0.f));
+    PromptSlot->SetAlignment(FVector2D(1.f, 0.f));
+    PromptSlot->SetPosition(FVector2D(-20.f, 20.f));
+    PromptSlot->SetAutoSize(true);
+    UpdatePrompt(false);
+}
+
+void UTransitHeightPromptWidget::UpdatePrompt(bool bChildViewEnabled)
+{
+    if (!PromptText) return;
+    if (bChildViewEnabled)
+        PromptText->SetText(NSLOCTEXT("TransitHUD", "NormalHeightPrompt", "Press C to return to normal height"));
+    else
+        PromptText->SetText(FText::Format(NSLOCTEXT("TransitHUD", "ChildHeightPrompt", "Press C for child height ({0} cm)"),
+            FText::AsNumber(FMath::RoundToInt(ATransitPlayerController::ChildEyeHeightCm))));
 }

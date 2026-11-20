@@ -14,6 +14,7 @@ class ATransitKioskActor;
 class ACameraActor;
 class UWidgetInteractionComponent;
 class UTransitKioskAimWidget;
+class UTransitHeightPromptWidget;
 
 /**
  *  Simple first person Player Controller
@@ -35,6 +36,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Kiosk")
     void CloseKiosk();
     bool IsKioskOpen() const { return KioskWidget != nullptr; }
+    bool IsChildViewEnabled() const { return bChildViewEnabled; }
+    static constexpr float ChildEyeHeightCm = 115.f;
     UTransitKioskWidget* GetKioskWidget() const { return KioskWidget; }
     void StoreDemoProgress(int32 BalanceCents)
     {
@@ -88,6 +91,7 @@ protected:
 
 private:
     friend struct FTransitKioskPOVCheck;
+    void FaceNearestKiosk(APawn& PlayerPawn);
     void UpdateKioskPrompt();
     void CloseKioskInternal(bool bForce);
     void UpdateKioskCamera();
@@ -97,6 +101,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<ACameraActor> ReturningCamera;
     UPROPERTY(Transient) TObjectPtr<UWidgetInteractionComponent> KioskPointer;
     UPROPERTY(Transient) TObjectPtr<UTransitKioskAimWidget> KioskAim;
+    UPROPERTY(Transient) TObjectPtr<UTransitHeightPromptWidget> HeightPrompt;
     TWeakObjectPtr<AActor> PreviousViewTarget;
     TWeakObjectPtr<APawn> KioskUserPawn;
     bool bSavedPawnHidden = false;
@@ -111,6 +116,8 @@ private:
     bool bSavedHoverEvents = false;
     bool bPointerOnScreen = false;
     FName HardwareAction;
+    bool bStartupFacingSet = false;
+    bool bChildViewEnabled = false;
     float KioskYaw = 0, KioskPitch = 0, KioskEyeHeight = 165;
     FTimerHandle CameraReturnTimer;
 };

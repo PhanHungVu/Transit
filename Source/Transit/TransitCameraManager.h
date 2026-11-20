@@ -19,4 +19,7 @@ public:
 
 	/** Constructor */
 	ATransitCameraManager();
+
+protected:
+	virtual void UpdateViewTargetInternal(FTViewTarget& OutVT, float DeltaTime) override;
 };

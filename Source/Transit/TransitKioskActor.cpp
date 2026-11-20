@@ -81,6 +81,13 @@ UStaticMeshComponent* ATransitKioskActor::FindPart(FName Name) const
 void ATransitKioskActor::BeginPlay()
 {
     Super::BeginPlay();
+    if (auto* CancelKey = FindPart(TEXT("PaymentKey_3_0")))
+    {
+        CancelKey->ComponentTags.AddUnique(TEXT("CancelPayment"));
+        CancelKey->SetCollisionResponseToAllChannels(ECR_Ignore);
+        CancelKey->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+        CancelKey->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    }
     PrepareInteractionHighlights();
     PrepareTouchscreen(GetWorld()->GetFirstPlayerController());
     UpdatePresentation();
